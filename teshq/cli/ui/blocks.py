@@ -35,7 +35,6 @@ from teshq.cli.ui.theme import (
 )
 
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  COGNITIVE STAGES — Progress Narrative
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -388,8 +387,11 @@ class CommandBlock:
         self._parameters = parameters
         return self
 
-    def set_results(self, table: Table, row_count: int) -> "CommandBlock":
-        self._results_table = table
+    def set_results(self, table: Any, row_count: int) -> "CommandBlock":
+        if isinstance(table, Panel) and hasattr(table, "renderable") and isinstance(table.renderable, Table):
+            self._results_table = table.renderable
+        else:
+            self._results_table = table
         self._row_count = row_count
         return self
 
@@ -482,11 +484,16 @@ class CommandBlock:
         if self._success and self._sql:
             parts.append(Text(""))
             parts.append(render_action_hints())
+        elif self._error:
+            parts.append(Text(""))
+            parts.append(render_error_action_hints())
 
         # ── Compose block ─────────────────────────────────────────────
-        border_color = Colors.PRIMARY if self._success else Colors.ERROR
+        border_color = Colors.BORDER_DEFAULT if self._success else Colors.ERROR_DIM
         block_title = (
-            f"[{Colors.TEXT_GHOST}]#{self.number}[/{Colors.TEXT_GHOST}]"
+            f"[{Colors.PRIMARY}]⟡[/{Colors.PRIMARY}] [{Colors.TEXT_MUTED}]#{self.number}[/{Colors.TEXT_MUTED}]"
+            if self._success
+            else f"[{Colors.ERROR}]✗[/{Colors.ERROR}] [{Colors.TEXT_MUTED}]#{self.number}[/{Colors.TEXT_MUTED}]"
         )
 
         return Panel(

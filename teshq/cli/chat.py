@@ -335,8 +335,12 @@ def interactive_chat(
     # ── Interactive Prompt Loop ───────────────────────────────────────
     while True:
         try:
-            # Minimal prompt: just the › character
-            prompt_str = f"[bold {Colors.PRIMARY}]{Icons.prompt()}[/bold {Colors.PRIMARY}] "
+            # Sleek Antigravity / OpenCode prompt
+            prompt_str = (
+                f"[bold {Colors.PRIMARY}]◇[/bold {Colors.PRIMARY}] "
+                f"[bold {Colors.TEXT_PRIMARY}]teshq[/bold {Colors.TEXT_PRIMARY}] "
+                f"[dim {Colors.TEXT_MUTED}]›[/dim {Colors.TEXT_MUTED}] "
+            )
             user_input = console.input(prompt_str).strip()
         except (KeyboardInterrupt, EOFError):
             console.print(_render_session_summary(
@@ -366,7 +370,27 @@ def interactive_chat(
         cmd_candidate = clean_input.lower()
 
         if not is_slash:
-            if cmd_candidate in ("copy sql", "copy"):
+            # Single-tap numbered action shortcuts 1-5
+            if cmd_candidate in ("1", "2", "3", "4", "5") and (last_sql or last_error or last_nl_query):
+                if last_error and not last_sql:
+                    if cmd_candidate == "1":
+                        clean_input = "/rerun"
+                    elif cmd_candidate == "2":
+                        clean_input = "/explain"
+                    elif cmd_candidate == "3":
+                        clean_input = "/copy error"
+                else:
+                    if cmd_candidate == "1":
+                        clean_input = "/copy sql"
+                    elif cmd_candidate == "2":
+                        clean_input = "/copy results"
+                    elif cmd_candidate == "3":
+                        clean_input = "/export csv"
+                    elif cmd_candidate == "4":
+                        clean_input = "/explain"
+                    elif cmd_candidate == "5":
+                        clean_input = "/rerun"
+            elif cmd_candidate in ("copy sql", "copy"):
                 clean_input = "/copy sql"
             elif cmd_candidate in ("copy results", "copy data"):
                 clean_input = "/copy results"
@@ -543,11 +567,13 @@ def interactive_chat(
                         if copy_to_clipboard(csv_data):
                             console.print(
                                 f"  [{Colors.SUCCESS}]{Icons.check()}[/{Colors.SUCCESS}] "
-                                f"[bold {Colors.TEXT_PRIMARY}]Results ({len(df):,} rows) copied to clipboard as CSV![/bold {Colors.TEXT_PRIMARY}]\n"
+                                f"[bold {Colors.TEXT_PRIMARY}]Results ({len(df):,} rows) "
+                                f"copied to clipboard as CSV![/bold {Colors.TEXT_PRIMARY}]\n"
                             )
                         else:
                             console.print(
-                                f"  [{Colors.WARNING}]{Icons.warn()} Clipboard not available in this environment.[/{Colors.WARNING}]\n"
+                                f"  [{Colors.WARNING}]{Icons.warn()} "
+                                f"Clipboard not available in this environment.[/{Colors.WARNING}]\n"
                             )
                 elif target in ("error", "err"):
                     if not last_error:
@@ -558,7 +584,8 @@ def interactive_chat(
                         if copy_to_clipboard(last_error):
                             console.print(
                                 f"  [{Colors.SUCCESS}]{Icons.check()}[/{Colors.SUCCESS}] "
-                                f"[bold {Colors.TEXT_PRIMARY}]Error details copied to clipboard![/bold {Colors.TEXT_PRIMARY}]\n"
+                                f"[bold {Colors.TEXT_PRIMARY}]Error details copied to clipboard!"
+                                f"[/bold {Colors.TEXT_PRIMARY}]\n"
                             )
                         else:
                             console.print(
@@ -633,7 +660,10 @@ def interactive_chat(
                         for m in matches:
                             console.print(f"    • [{Colors.TEXT_PRIMARY}]{m}[/{Colors.TEXT_PRIMARY}]")
                     else:
-                        console.print(f"  [{Colors.TEXT_MUTED}]No matches found in session history for \"{query}\".[/{Colors.TEXT_MUTED}]")
+                        console.print(
+                            f"  [{Colors.TEXT_MUTED}]No matches found in session history "
+                            f"for \"{query}\".[/{Colors.TEXT_MUTED}]"
+                        )
                     console.print()
                 continue
 
@@ -666,6 +696,7 @@ def interactive_chat(
             last_sql = adv_result.query
             last_parameters = adv_result.parameters
             last_nl_query = user_input
+            last_error = None
 
             # Update session stats
             session_queries += 1
@@ -697,7 +728,6 @@ def interactive_chat(
                     title="Results",
                     summary=f"Found {len(result):,} record(s)",
                 )
-                # Extract the inner table from the panel
                 block.set_results(results_panel, len(result))
 
             # Metrics
@@ -713,9 +743,10 @@ def interactive_chat(
         except Exception as e:
             # Error block
             last_error = str(e)
+            last_sql = None
+            last_result = None
             console.print()
             block = CommandBlock(user_input)
             block.set_error(str(e))
             block.print()
-            print_error_card(e, context="Query Processing")
             console.print()
