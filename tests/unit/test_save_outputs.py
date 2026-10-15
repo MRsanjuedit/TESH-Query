@@ -6,23 +6,18 @@ Tests the new helpers in teshq.utils.save:
   - resolve_output_path()
   - get_default_output_dir()
 """
-import os
 import re
-import tempfile
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from teshq.utils.save import (
     generate_query_slug,
     get_default_output_dir,
     resolve_output_path,
     save_to_csv,
-    save_to_excel,
 )
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

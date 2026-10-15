@@ -5,8 +5,8 @@ This module provides a standardized interface for connecting to various database
 with optimized configurations and error handling for each database type.
 """
 
-import re
 from abc import ABC, abstractmethod
+
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -719,6 +719,6 @@ class UnifiedDatabaseConnector:
             return {
                 "database_type": cls.detect_database_type(url),
                 "supported": False,
-                "error": f"Database type not supported",
+                "error": "Database type not supported",
                 "supported_types": cls.get_supported_databases(),
             }

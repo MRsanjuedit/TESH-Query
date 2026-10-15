@@ -7,12 +7,11 @@ and run smoke tests against local GGUF weights.
 
 import json
 import os
-import time
-from typing import Optional
 import typer
 from rich.panel import Panel
 
-from teshq.cli.ui import error, handle_error, print_header, status, success, tip, warning
+from teshq.cli.ui import error, handle_error, print_header, status, tip
+
 from teshq.cli.ui.theme import Colors, Icons, ROUNDED_BOX, console
 from teshq.config.loader import get_settings
 from teshq.core.hardware import detect_hardware
@@ -51,8 +50,9 @@ def local_status(
     try:
         # 1. Check if llama-cpp-python is installed
         try:
-            import llama_cpp
+            import llama_cpp  # noqa: F401
             llama_installed = True
+
         except ImportError:
             llama_installed = False
 
@@ -187,8 +187,9 @@ def local_test(
     print_header("Local Backend Smoke Test", level=2)
 
     try:
-        import llama_cpp
+        import llama_cpp  # noqa: F401
     except ImportError:
+
         error("llama-cpp-python is not installed. Run: pip install teshq[local]")
         raise typer.Exit(1)
 

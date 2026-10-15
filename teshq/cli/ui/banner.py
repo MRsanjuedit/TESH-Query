@@ -12,17 +12,15 @@ from __future__ import annotations
 from typing import List, Optional
 
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 from teshq.cli.ui.theme import (
     Colors,
     Icons,
-    Spacing,
     ROUNDED_BOX,
     console,
-    status_dot,
 )
+
 from teshq.cli.ui.status_bar import render_status_bar
 
 
@@ -92,7 +90,7 @@ def render_hero_banner(
     banner.append("\n")
 
     # ── Credit line ────────────────────────────────────────────────────────
-    banner.append(f"    by ", style=f"dim {Colors.TEXT_MUTED}")
+    banner.append("    by ", style=f"dim {Colors.TEXT_MUTED}")
     banner.append("treeex", style=f"dim italic {Colors.PRIMARY_HOVER}")
     banner.append(f"  {Icons.arrow_r()} ", style=f"dim {Colors.TEXT_MUTED}")
     banner.append("github.com/theshashank1/TESH-Query", style=f"dim underline {Colors.TEXT_MUTED}")

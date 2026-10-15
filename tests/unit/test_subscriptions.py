@@ -16,8 +16,8 @@ from teshq.subscriptions.client import (
     SubscriptionResponse,
     SubscriptionResult,
     SubscriptionStatus,
-    subscribe_user,
 )
+
 
 
 runner = CliRunner()

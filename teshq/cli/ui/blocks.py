@@ -15,10 +15,8 @@ A command block contains:
 
 from __future__ import annotations
 
-import time
 from typing import Any, Dict, List, Optional
 
-from rich.columns import Columns
 from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
@@ -31,12 +29,11 @@ from teshq.cli.ui.theme import (
     Colors,
     Icons,
     Spacing,
-    Typography,
     ROUNDED_BOX,
     console,
     latency_color,
-    status_dot,
 )
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

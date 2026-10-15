@@ -13,7 +13,8 @@ from typing import Any, Dict, Optional
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.pool import Pool, QueuePool, StaticPool
+from sqlalchemy.pool import QueuePool, StaticPool
+
 
 from teshq.core.connectors import UnifiedDatabaseConnector
 from teshq.utils.logging import log_operation, logger, metrics

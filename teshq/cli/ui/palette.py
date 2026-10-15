@@ -13,7 +13,8 @@ from typing import List, Optional, Tuple
 from rich.table import Table
 from rich.text import Text
 
-from teshq.cli.ui.theme import Colors, Icons, ROUNDED_BOX, console
+from teshq.cli.ui.theme import Colors, Icons, console
+
 
 
 # ── Slash command registry ────────────────────────────────────────────────────

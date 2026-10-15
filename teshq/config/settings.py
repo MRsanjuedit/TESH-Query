@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
+
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from teshq.config.paths import CONFIG_FILE, SECRETS_FILE, ensure_teshq_dir

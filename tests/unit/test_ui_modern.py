@@ -3,19 +3,18 @@ Unit tests for the "Obsidian Instrument" UI components of TESH-Query.
 """
 
 from decimal import Decimal
-import pytest
 from rich.panel import Panel
 from rich.text import Text
-from rich.tree import Tree
 
 from teshq.cli.ui.theme import Colors, Icons, Typography, Spacing, latency_color
-from teshq.cli.ui.banner import render_hero_banner, render_hud, print_suggested_prompts
+from teshq.cli.ui.banner import render_hero_banner, render_hud
 from teshq.cli.ui.cards import render_sql_card, render_metrics_panel, render_error_card
 from teshq.cli.ui.tables import render_results_table
 from teshq.cli.ui.blocks import (
-    CommandBlock, StageTracker, render_command_block, render_telemetry_strip,
+    CommandBlock, StageTracker, render_telemetry_strip,
     render_action_hints, QUERY_STAGES, DRY_RUN_STAGES,
 )
+
 from teshq.cli.ui.status_bar import render_status_bar
 from teshq.cli.ui.palette import render_help_sheet, render_command_list, fuzzy_match
 from teshq.cli.ui.ai_context import render_ai_explanation, render_table_suggestion

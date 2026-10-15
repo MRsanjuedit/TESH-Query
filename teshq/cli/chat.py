@@ -9,33 +9,28 @@ from __future__ import annotations
 
 import os
 import sys
-import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import typer
-from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
 from teshq.config.loader import get_database_url as get_db_url, get_settings
 from teshq.core.engine import TeshEngine
-from teshq.core.exceptions import TeshqConfigurationError
 from teshq.utils.output import QueryResult
 from teshq.utils.save import save_to_csv, save_to_excel, resolve_output_path
 from teshq.cli.ui.banner import print_hero_banner, print_hud, print_suggested_prompts
-from teshq.cli.ui.cards import print_error_card, print_metrics, print_sql_card
-from teshq.cli.ui.tables import print_results_table, render_results_table
+from teshq.cli.ui.cards import print_error_card, print_sql_card
+from teshq.cli.ui.tables import render_results_table
 from teshq.cli.ui.blocks import (
     CommandBlock,
     StageTracker,
     QUERY_STAGES,
-    render_stage_line,
 )
 from teshq.cli.ui.status_bar import print_status_bar
-from teshq.cli.ui.palette import print_help_sheet, render_help_sheet
-from teshq.cli.ui.theme import Colors, Icons, Spacing, ROUNDED_BOX, console, err_console
+from teshq.cli.ui.palette import print_help_sheet
+from teshq.cli.ui.theme import Colors, Icons, console
+
 
 app = typer.Typer(help="Interactive multi-turn SQL chat session.")
 
@@ -442,7 +437,7 @@ def interactive_chat(
                 continue
 
             elif cmd == "/export":
-                if not last_result or not last_result.dataframe is not None:
+                if not last_result or last_result.dataframe is None:
                     console.print(
                         f"  [{Colors.WARNING}]{Icons.warn()} No active results to export."
                         f"[/{Colors.WARNING}]\n"

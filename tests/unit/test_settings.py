@@ -1,8 +1,8 @@
 """Unit tests for teshq.config.settings (no disk I/O — uses env vars only)."""
 
-import os
 import pytest
 from pathlib import Path
+
 
 @pytest.fixture(autouse=True)
 def clear_env_vars(monkeypatch):
@@ -14,21 +14,21 @@ def clear_env_vars(monkeypatch):
         "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_API_VERSION"
     ]:
         monkeypatch.setenv(key, "")
-    
+
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.delenv("TESHQ_NO_TELEMETRY", raising=False)
-    
+
     # Prevent loading from actual ~/.teshq/.env on dev machine
     monkeypatch.setattr("teshq.config.paths.SECRETS_FILE", Path("/nonexistent/.env"))
     # Prevent YAML config source from loading actual config.yaml
     monkeypatch.setattr("teshq.config.settings.CONFIG_FILE", Path("/nonexistent/config.yaml"))
 
+
 class TestSettingsDefaults:
     def test_defaults_without_env(self):
         """Settings should load without raising even if secrets are missing."""
 
-        from importlib import reload
         import teshq.config.settings as mod
         mod._settings_cache = None  # clear cache
 
@@ -39,9 +39,9 @@ class TestSettingsDefaults:
         assert s.no_telemetry is False
 
     def test_is_configured_false(self):
-        from importlib import reload
         import teshq.config.settings as mod
         mod._settings_cache = None
+
 
         s = mod.get_settings()
         assert s.is_configured is False

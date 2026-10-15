@@ -104,9 +104,9 @@ def _callback(
         from teshq.cli.ui.banner import print_hero_banner, print_hud
         from teshq.cli.chat import _get_env_summary
         from teshq.cli.ui.theme import console, Colors, Icons
-        from rich.text import Text
 
         print_hero_banner()
+
         db_status, db_type, llm_name, table_count = _get_env_summary()
         print_hud(db_status=db_status, db_type=db_type, llm_model=llm_name, schema_tables_count=table_count)
         console.print()

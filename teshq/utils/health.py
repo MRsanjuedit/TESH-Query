@@ -14,11 +14,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from teshq.config.loader import get_database_url, get_gemini_config
+from teshq.config.loader import get_database_url
 from teshq.utils.logging import logger
 from teshq.core.retry import retry_api_call
 from teshq.core.validation import ConfigValidator
-import os
+
 
 _health_checks: Dict[str, Callable[[], Tuple["HealthStatus", str, Dict[str, Any]]]] = {}
 

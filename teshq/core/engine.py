@@ -10,20 +10,18 @@ import atexit
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from teshq.core.exceptions import (
-    DatabaseConnectionError,
-    ExecutionTimeoutError,
     LLMRateLimitError,
     SchemaIntrospectionError,
     SelfHealingExhaustedError,
     SQLGenerationError,
-    SQLValidationError,
     TeshqConfigurationError,
     classify_llm_error,
 )
+
 from teshq.core.introspect import introspect_db
 from teshq.core.models import QueryPlan, SQLQuery
 from teshq.core.planner import QueryPlanner, build_planner

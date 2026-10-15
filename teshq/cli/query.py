@@ -17,7 +17,8 @@ from teshq.config.loader import get_database_url as get_db_url
 from teshq.utils.output import QueryResult
 from teshq.utils.save import save_to_csv, save_to_excel, save_to_sqlite, resolve_output_path
 from teshq.telemetry.events import track_command, track_error, track_feature
-from teshq.cli.ui import Colors, error, handle_error, info, print_divider, print_metrics, print_sql_card, status, success, tip, warning
+from teshq.cli.ui import Colors, error, handle_error, info, print_metrics, print_sql_card, status, success, tip, warning
+
 from teshq.core.exceptions import TeshqConfigurationError
 from teshq.core.validation import CLIValidator, ValidationError
 

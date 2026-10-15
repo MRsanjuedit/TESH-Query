@@ -38,13 +38,17 @@ Example usage:
     print(sql_info['query'])
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, Iterator, List, Optional, Union
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, Iterator, Optional, Union
+
 
 if TYPE_CHECKING:
     import pandas as pd
     from teshq.events import CancellationToken, QueryEvent
     from teshq.session import TeshChatSession
+
 
 from .config.paths import SCHEMA_DIR
 from .core.engine import TeshEngine
@@ -296,7 +300,8 @@ class TeshQuery:
         output_format: str = "dataframe",
         output_path: Optional[str] = None,
         return_sql: bool = False,
-        cancellation_token: Optional[Any] = None,
+        cancellation_token: Optional[CancellationToken] = None,
+
         event_callback: Optional[Callable[[Any], None]] = None,
         context: Optional[str] = None,
         **kwargs,
@@ -631,7 +636,8 @@ class TeshQuery:
         natural_language_query: str,
         output_format: str = "dataframe",
         return_sql: bool = False,
-        cancellation_token: Optional[Any] = None,
+        cancellation_token: Optional[CancellationToken] = None,
+
         event_callback: Optional[Callable[[Any], None]] = None,
         context: Optional[str] = None,
         **kwargs,

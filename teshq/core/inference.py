@@ -8,7 +8,8 @@ No HTTP server, no subprocesses — just direct C/C++ library bindings.
 import time
 import os
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Iterator, Union
+from typing import Optional, List, Any, Iterator
+
 from teshq.utils.logging import logger
 
 @dataclass

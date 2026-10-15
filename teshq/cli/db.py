@@ -1,7 +1,7 @@
 import os
 import time
-from typing import Optional
 import typer
+
 from dotenv import load_dotenv
 from sqlalchemy.engine import make_url
 
