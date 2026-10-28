@@ -12,7 +12,7 @@ are not triggered.
 """
 
 import re
-from typing import List
+from typing import List, Optional
 
 import sqlparse
 from sqlparse.sql import Statement
@@ -28,6 +28,14 @@ _BLOCKED_STATEMENT_TYPES = frozenset(
         "TRUNCATE",
         "ALTER",
         "CREATE",
+        "ATTACH",
+        "DETACH",
+        "GRANT",
+        "REVOKE",
+        "EXEC",
+        "EXECUTE",
+        "COPY",
+        "SHUTDOWN",
     }
 )
 
@@ -40,6 +48,14 @@ _BLOCKED_KEYWORDS = frozenset(
         "ALTER",
         "CREATE",
         "REPLACE",
+        "ATTACH",
+        "DETACH",
+        "GRANT",
+        "REVOKE",
+        "EXEC",
+        "EXECUTE",
+        "COPY",
+        "SHUTDOWN",
     }
 )
 
@@ -68,11 +84,13 @@ def _get_first_keyword(stmt: Statement) -> str:
     from sqlparse import tokens as T
 
     for token in stmt.flatten():
+        val = (getattr(token, "normalized", None) or token.value or "").strip().upper()
+        if not val:
+            continue
         if token.ttype in (T.Keyword.DML, T.Keyword.DDL):
-            return token.normalized.upper()
-        # Some multi-word DDL (e.g. CREATE OR REPLACE) starts with Keyword
-        if token.ttype is T.Keyword and token.normalized.upper() in _BLOCKED_KEYWORDS:
-            return token.normalized.upper()
+            return val
+        if val in _BLOCKED_KEYWORDS:
+            return val
     return ""
 
 
@@ -92,7 +110,7 @@ def _has_where_clause(stmt: Statement) -> bool:
     return False
 
 
-def validate_sql(sql: str) -> None:
+def validate_sql(sql: str, dialect: Optional[str] = None) -> None:
     """
     Validate SQL against safety rules using sqlparse AST analysis.
 
@@ -103,8 +121,16 @@ def validate_sql(sql: str) -> None:
     - No SELECT *
     - No positional parameters (?, $1, %s) — must use :param_name syntax
 
+    The optional ``dialect`` parameter (e.g. "SQLite", "PostgreSQL", "MySQL",
+    "SQL Server (T-SQL)", "Oracle") is accepted for forward compatibility.
+    Currently, the safety rules above are dialect-independent — dialect-specific
+    keywords like TOP, ROWNUM, ILIKE are never blocked because the validator
+    only inspects structural DDL/DML patterns, not SQL function or keyword names.
+
     Args:
         sql: The SQL string to validate.
+        dialect: Optional SQL dialect string. Reserved for future dialect-specific
+            validation rules.
 
     Raises:
         ValidationError: If any safety rule is violated.

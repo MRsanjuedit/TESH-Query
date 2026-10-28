@@ -11,10 +11,11 @@ import re
 import time
 from typing import Any, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 
+
 from teshq.core.models import QueryPlan
+from teshq.core.retry import retry_with_backoff, API_RETRY_CONFIG
 from teshq.utils.logging import logger
 
 _SYSTEM_PROMPT = (
@@ -22,9 +23,10 @@ _SYSTEM_PROMPT = (
     "Given a compressed database schema and a natural language query, identify:\n"
     "  - tables: all table names needed to answer the query\n"
     "  - filters: WHERE clause conditions (e.g. 'age > 25', 'status = active')\n"
-    "  - aggregations: GROUP BY / aggregate functions needed (e.g. 'COUNT orders', 'SUM revenue')\n"
+    "  - aggregations: GROUP BY / aggregate functions needed (e.g. 'COUNT orders', 'SUM revenue', 'RANK by sales')\n"
     "  - joins_needed: relationships to traverse (e.g. 'users.id = orders.user_id')\n"
     "Use the FK→ annotations in the schema to identify join paths. "
+    "Consider analytical patterns (window functions, running totals, trends) if the user asks for rankings, percentiles, or time-over-time metrics. "
     "Do NOT generate any SQL — return structured JSON only.\n\n"
     "Respond with ONLY valid JSON in this exact format:\n"
     '{"tables": [...], "filters": [...], "aggregations": [...], "joins_needed": [...]}'
@@ -89,6 +91,7 @@ class QueryPlanner:
 
         return plan
 
+    @retry_with_backoff(API_RETRY_CONFIG)
     def _invoke_google(self, messages: list, start: float, callbacks: Optional[list] = None) -> QueryPlan:
         """Invoke via structured output (Pydantic schema) for Google Gemini."""
         max_attempts = 3
@@ -127,6 +130,7 @@ class QueryPlanner:
         logger.error("Query planning failed", error=last_exc, plan_latency_ms=elapsed_ms)
         raise last_exc  # type: ignore[misc]
 
+    @retry_with_backoff(API_RETRY_CONFIG)
     def _invoke_azure(self, messages: list, start: float, callbacks: Optional[list] = None) -> QueryPlan:
         """
         Invoke via plain text for Azure OpenAI.

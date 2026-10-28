@@ -68,20 +68,28 @@ del _warnings
 
 # Import main API classes and functions
 from .api import TeshQuery, health_check, introspect, query
+from .events import CancellationToken, EventType, QueryCancelledError, QueryEvent
+from .session import TeshChatSession, ChatTurn
 
 # Import version information
-try:
-    from ._version import __version__
-except ImportError:
-    try:
-        from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, version
 
-        try:
-            __version__ = version("teshq")
-        except PackageNotFoundError:
-            __version__ = "0.0.0.dev0"
-    except ImportError:
-        __version__ = "0.0.0.dev0"
+try:
+    __version__ = version("teshq")
+except PackageNotFoundError:
+    __version__ = "3.0.0.dev1"
 
 # Public API
-__all__ = ["TeshQuery", "health_check", "introspect", "query", "__version__"]
+__all__ = [
+    "TeshQuery",
+    "TeshChatSession",
+    "ChatTurn",
+    "CancellationToken",
+    "QueryCancelledError",
+    "QueryEvent",
+    "EventType",
+    "health_check",
+    "introspect",
+    "query",
+    "__version__",
+]

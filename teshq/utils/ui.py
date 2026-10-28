@@ -97,13 +97,10 @@ class ModernUI:
             return None
 
     def _detect_unicode(self) -> bool:
-        """Detect Unicode support"""
-        # Attempt to write a known Unicode character
+        """Detect Unicode support without polluting stdout."""
         try:
-            sys.stdout.write("•")
-            # Immediately erase it to avoid universal printing
-            sys.stdout.write("\b")
-            sys.stdout.flush()
+            encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+            "•".encode(encoding)
             return True
         except (UnicodeEncodeError, UnicodeError):
             return False
@@ -306,7 +303,8 @@ class ModernUI:
 
     def print_sql(self, sql: str, title: str = "SQL Query", show_line_numbers: bool = False):
         """Display SQL with syntax highlighting"""
-        self.print_code(sql, "sql", title, line_numbers=show_line_numbers)
+        from teshq.cli.ui.cards import print_sql_card
+        print_sql_card(sql, title=title)
 
     def print_json(self, json_data: str, title: str = "JSON Data"):
         """Display JSON with syntax highlighting"""
@@ -651,25 +649,9 @@ class ModernUI:
     def handle_error(
         self, error: Exception, context: str = "Operation", show_traceback: bool = False, suggest_action: str = ""
     ):
-        """Enhanced error handling"""
-        self.error(f"{context} failed: {type(error).__name__}")
-
-        if str(error):
-            self.info(str(error), dim=True, indent=1)
-
-        if suggest_action:
-            self.tip(suggest_action)
-
-        if show_traceback and self.has_rich:
-            import traceback
-
-            tb_text = traceback.format_exc()
-
-            if tb_text and "NoneType: None" not in tb_text:
-                self.space()
-                syntax = Syntax(tb_text, "python", theme="monokai", word_wrap=True)
-                panel = Panel(syntax, title="Traceback", border_style=Colors.ERROR, box=box.ROUNDED)
-                self.console.print(panel)
+        """Enhanced error handling with empathetic self-healing card."""
+        from teshq.cli.ui.cards import print_error_card
+        print_error_card(error, context=context, suggest_action=suggest_action, show_traceback=show_traceback)
 
     # --- Context Managers ---
     @contextmanager
@@ -1003,9 +985,9 @@ The simplified UI system includes several **performance enhancements**:
                 selected_database = select_option("Choose your preferred database system:", database_options, default_idx=0)
                 success(f"Database selected: {selected_database}")
 
-                frameworks = ["Django", "FastAPI", "Flask", "Streamlit", "Gradio"]
-                framework = select_option("Select your Python web framework:", frameworks, default_idx=1)
-                tip(f"Excellent choice! {framework} is perfect for modern development")
+                analytics_tools = ["Polars", "PyArrow", "DuckDB", "Pandas"]
+                analytics_engine = select_option("Select your preferred analytics engine:", analytics_tools, default_idx=0)
+                tip(f"Excellent choice! {analytics_engine} is optimized for high-performance analytics")
 
             # Advanced validation demonstrations
             with section("Advanced Validation & Configuration"):
@@ -1057,7 +1039,7 @@ The simplified UI system includes several **performance enhancements**:
                     "experience_level": f"{experience_level}/10",
                     "environment": environment,
                     "database": selected_database.split(" - ")[0],
-                    "framework": framework,
+                    "analytics_engine": analytics_engine,
                     "email": email,
                     "api_port": port,
                     "log_level": log_level,
@@ -1080,7 +1062,7 @@ The simplified UI system includes several **performance enhancements**:
                 print_query_results(
                     ["Metric", "Value", "Status"],
                     performance_metrics,
-                    f"System Performance - {framework} on {environment}",
+                    f"System Performance - {analytics_engine} on {environment}",
                     summary=f"Optimized for {name} at experience level {experience_level}",
                     execution_time=0.018,
                 )
@@ -1107,7 +1089,7 @@ The simplified UI system includes several **performance enhancements**:
 ### Your Final Configuration:
 - **Environment:** {environment}
 - **Database:** {selected_database.split(' - ')[0]}
-- **Framework:** {framework}
+- **Analytics Engine:** {analytics_engine}
 - **Theme:** {theme}
 - **Performance Level:** Expert
 

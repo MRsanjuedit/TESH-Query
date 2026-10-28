@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
+
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from teshq.config.paths import CONFIG_FILE, SECRETS_FILE, ensure_teshq_dir
@@ -36,6 +37,10 @@ SETTINGS_KEYS = {
     "AZURE_OPENAI_ENDPOINT",
     "AZURE_OPENAI_DEPLOYMENT",
     "AZURE_OPENAI_API_VERSION",
+    "LOCAL_MODEL_PATH",
+    "LOCAL_N_GPU_LAYERS",
+    "LOCAL_N_CTX",
+    "LOCAL_N_THREADS",
     "TESHQ_API_BASE_URL",
     "TESHQ_API_TIMEOUT",
     "SUBSCRIBER_EMAIL",
@@ -80,7 +85,7 @@ class Settings(BaseSettings):
         from teshq.config.settings import get_settings
         s = get_settings()
         print(s.gemini_model)
-        print(s.llm_provider)  # "google" or "azure"
+        print(s.llm_provider)  # "google", "azure" or "local"
     """
 
     # --- Secrets (loaded from env or ~/.teshq/.env) ---
@@ -100,6 +105,12 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str = Field(default="", alias="AZURE_OPENAI_ENDPOINT")
     azure_openai_deployment: str = Field(default="", alias="AZURE_OPENAI_DEPLOYMENT")
     azure_openai_api_version: str = Field(default="2024-10-21", alias="AZURE_OPENAI_API_VERSION")
+
+    # --- Non-secret settings (Local LLM via llama-cpp-python) ---
+    local_model_path: str = Field(default="", alias="LOCAL_MODEL_PATH")
+    local_n_gpu_layers: int = Field(default=-1, alias="LOCAL_N_GPU_LAYERS")
+    local_n_ctx: int = Field(default=4096, alias="LOCAL_N_CTX")
+    local_n_threads: int = Field(default=0, alias="LOCAL_N_THREADS")
 
     # --- Storage paths ---
     output_path: Path = Field(
@@ -158,8 +169,13 @@ class Settings(BaseSettings):
         """Return True if the database and at least one LLM provider are configured."""
         db_ok = bool(self.database_url)
         google_ok = bool(self.gemini_api_key)
-        azure_ok = bool(self.azure_openai_api_key) and bool(self.azure_openai_endpoint) and bool(self.azure_openai_deployment)
-        return db_ok and (google_ok or azure_ok)
+        azure_ok = (
+            bool(self.azure_openai_api_key)
+            and bool(self.azure_openai_endpoint)
+            and bool(self.azure_openai_deployment)
+        )
+        local_ok = bool(self.local_model_path)
+        return db_ok and (google_ok or azure_ok or local_ok)
 
     @property
     def effective_provider(self) -> str:
@@ -170,12 +186,18 @@ class Settings(BaseSettings):
         present and no Gemini key is set), return ``"azure"``; otherwise
         ``"google"``.
         """
-        if self.llm_provider.lower() == "azure":
+        provider = self.llm_provider.lower().strip()
+        if provider == "local":
+            return "local"
+        if provider == "azure":
             return "azure"
         # Auto-detect: if Azure is fully configured but Gemini key is absent
         azure_ready = bool(self.azure_openai_api_key) and bool(self.azure_openai_endpoint)
         if azure_ready and not self.gemini_api_key:
             return "azure"
+        # Auto-detect local: if a model path is set but no cloud API keys are set
+        if self.local_model_path and not self.gemini_api_key and not self.azure_openai_api_key:
+            return "local"
         return "google"
 
     def masked_database_url(self) -> str:
@@ -244,11 +266,11 @@ def save_secret(key: str, value: str) -> bool:
 
     try:
         content = "\n".join(f"{k}={v}" for k, v in env_vars.items()) + "\n"
-        
+
         # Write atomically using a temporary file
         import os as _os
         import tempfile as _tempfile
-        
+
         # Create a temp file in the same directory to ensure it's on the same filesystem
         fd, temp_path = _tempfile.mkstemp(dir=str(SECRETS_FILE.parent), prefix=".teshq.env.tmp.", text=False)
         try:
@@ -258,7 +280,7 @@ def save_secret(key: str, value: str) -> bool:
             _os.fsync(fd)
         finally:
             _os.close(fd)
-            
+
         # Atomically replace the original file
         _os.replace(temp_path, str(SECRETS_FILE))
 
@@ -298,12 +320,13 @@ def save_setting(key: str, value: Any) -> bool:
     existing[key] = str(value) if isinstance(value, Path) else value
 
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as fh:
+        temp_file = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.tmp.{os.getpid()}")
+        with open(temp_file, "w", encoding="utf-8") as fh:
             yaml.safe_dump(existing, fh, default_flow_style=False, sort_keys=True)
+        os.replace(temp_file, CONFIG_FILE)
         global _settings_cache
         _settings_cache = None  # invalidate cache
         return True
     except OSError as exc:
         print(f"Warning: could not save setting to {CONFIG_FILE}: {exc}")
         return False
-

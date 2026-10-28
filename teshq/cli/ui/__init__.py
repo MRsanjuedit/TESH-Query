@@ -1,31 +1,102 @@
 """
-CLI UI helpers for TESH-Query.
+TESH-Query — Unified CLI UI Engine.
 
-Provides Rich-based terminal output utilities used across all CLI commands:
-  - print_header / print_footer  — section banners
-  - status                       — spinner context manager
-  - error / warning / tip        — styled message printers
-  - handle_error                 — structured exception display
+Single import surface for the "Obsidian Instrument" design system:
+  - theme:      Colors, Icons, surfaces, spacing, typography
+  - banner:     Compact hero, inline HUD, suggested prompts
+  - cards:      SQL cards, telemetry strip, diagnostic errors
+  - tables:     Data grid with intelligent formatting
+  - blocks:     Command block system (signature interaction)
+  - status_bar: Ambient system awareness
+  - palette:    Command palette / inline search
+  - ai_context: Contextual AI hints
+  - helpers:    status spinner, success, warning, error, tip, info
 """
 
 from __future__ import annotations
 
-import sys
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from rich.console import Console
-from rich.panel import Panel
+from rich.rule import Rule
 from rich.status import Status
-from rich.text import Text
 
-# Single shared console instance for the whole CLI
-console = Console()
-err_console = Console(stderr=True)
 
+from teshq.cli.ui.banner import (
+    print_cognitive_step,
+    print_hero_banner,
+    print_hud,
+    print_suggested_prompts,
+    render_hero_banner,
+    render_hud,
+)
+from teshq.cli.ui.cards import (
+    print_error_card,
+    print_metrics,
+    print_sql_card,
+    print_success_card,
+    render_error_card,
+    render_metrics_panel,
+    render_sql_card,
+)
+from teshq.cli.ui.tables import (
+    print_results_table,
+    render_results_table,
+)
+from teshq.cli.ui.blocks import (
+    CommandBlock,
+    StageTracker,
+    render_command_block,
+    render_telemetry_strip,
+    print_telemetry_strip,
+    render_action_hints,
+    render_stage_line,
+    print_stages_progress,
+    QUERY_STAGES,
+    DRY_RUN_STAGES,
+    INTROSPECT_STAGES,
+)
+from teshq.cli.ui.status_bar import (
+    render_status_bar,
+    print_status_bar,
+)
+from teshq.cli.ui.palette import (
+    render_command_list,
+    render_help_sheet,
+    print_help_sheet,
+    fuzzy_match,
+    SLASH_COMMANDS,
+)
+from teshq.cli.ui.ai_context import (
+    render_ai_explanation,
+    print_ai_explanation,
+    render_table_suggestion,
+    render_error_context_hint,
+)
+from teshq.cli.ui.theme import (
+    Colors,
+    Icons,
+    Typography,
+    Spacing,
+    ROUNDED_BOX,
+    SIMPLE_BOX,
+    HEAVY_BOX,
+    GRADIENT_AURORA,
+    GRADIENT_NEON,
+    GRADIENT_OCEAN,
+    GRADIENT_SUNSET,
+    console,
+    err_console,
+    badge,
+    dim_label,
+    status_dot,
+    progress_bar,
+    gradient_text,
+    latency_color,
+)
 
 # ---------------------------------------------------------------------------
-# Section headers / footers
+# Section Headers / Footers
 # ---------------------------------------------------------------------------
 
 
@@ -34,32 +105,51 @@ def print_header(title: str, level: int = 1) -> None:
 
     Args:
         title: The header text to display.
-        level: 1 = top-level banner (Rule), 2 = sub-section (Panel lite).
+        level: 1 = top-level (Rule), 2 = sub-section.
     """
     if level == 1:
-        from rich.rule import Rule
         console.print()
-        console.print(Rule(f"[bold cyan]{title}[/bold cyan]", style="cyan"))
+        console.print(
+            Rule(
+                f"[bold {Colors.PRIMARY}]{title}[/bold {Colors.PRIMARY}]",
+                style=Colors.BORDER_DEFAULT,
+            )
+        )
         console.print()
     else:
         console.print()
-        console.print(f"[bold blue]▸ {title}[/bold blue]")
+        console.print(
+            f"[bold {Colors.PRIMARY_HOVER}]{Icons.prompt()} {title}"
+            f"[/bold {Colors.PRIMARY_HOVER}]"
+        )
         console.print()
 
 
 def print_footer(message: str = "") -> None:
-    """Print a styled footer / completion line."""
-    from rich.rule import Rule
+    """Print a styled footer line."""
     console.print()
     if message:
-        console.print(Rule(f"[dim]{message}[/dim]", style="dim"))
+        console.print(Rule(f"[dim]{message}[/dim]", style=Colors.BORDER_SUBTLE))
     else:
-        console.print(Rule(style="dim"))
+        console.print(Rule(style=Colors.BORDER_SUBTLE))
     console.print()
+
+
+def print_divider(text: str = "") -> None:
+    """Print a styled horizontal divider line."""
+    if text:
+        console.print(
+            Rule(
+                f"[dim {Colors.TEXT_TERTIARY}]{text}[/dim {Colors.TEXT_TERTIARY}]",
+                style=Colors.BORDER_SUBTLE,
+            )
+        )
+    else:
+        console.print(Rule(style=Colors.BORDER_SUBTLE))
 
 
 # ---------------------------------------------------------------------------
-# Status spinner context manager
+# Status Spinner Context Manager
 # ---------------------------------------------------------------------------
 
 
@@ -68,80 +158,162 @@ def status(
     message: str,
     success_message: Optional[str] = None,
     spinner: str = "dots",
-) -> Generator[None, None, None]:
-    """Context manager that shows a spinner while work is in progress.
-
-    On clean exit it prints the *success_message* (if provided) in green.
-    On exception the spinner stops and the caller is responsible for
-    printing the error via ``handle_error()``.
+) -> Generator[Status, None, None]:
+    """Context manager that displays a spinner while work is in progress.
 
     Args:
         message: Text shown while the spinner is active.
-        success_message: Text shown on success (green checkmark prefix).
-        spinner: Rich spinner name (default ``"dots"``).
+        success_message: Text shown on success (checkmark prefix).
+        spinner: Rich spinner name (default 'dots').
     """
-    with Status(f"[cyan]{message}[/cyan]", spinner=spinner, console=console) as _s:
+    with Status(
+        f"[{Colors.PRIMARY}]{message}[/{Colors.PRIMARY}]",
+        spinner=spinner,
+        console=console,
+    ) as _s:
         try:
-            yield
+            yield _s
         except Exception:
-            raise  # let the caller handle it
+            raise
 
     if success_message:
-        console.print(f"[green]✓[/green] {success_message}")
+        console.print(
+            f"[bold {Colors.SUCCESS}]{Icons.check()}[/bold {Colors.SUCCESS}] "
+            f"[bold {Colors.TEXT_PRIMARY}]{success_message}"
+            f"[/bold {Colors.TEXT_PRIMARY}]"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Message printers
+# Message Printers
 # ---------------------------------------------------------------------------
 
 
 def error(message: str) -> None:
-    """Print an error message to stderr in red."""
-    err_console.print(f"[bold red]✗ Error:[/bold red] {message}")
+    """Print an error message to stderr."""
+    err_console.print(
+        f"[bold {Colors.ERROR}]{Icons.cross()} Error:[/bold {Colors.ERROR}] {message}"
+    )
 
 
 def warning(message: str) -> None:
-    """Print a warning message to stderr in yellow."""
-    err_console.print(f"[bold yellow]⚠ Warning:[/bold yellow] {message}")
+    """Print a warning message to stderr."""
+    err_console.print(
+        f"[bold {Colors.WARNING}]{Icons.warn()} Warning:[/bold {Colors.WARNING}] "
+        f"{message}"
+    )
 
 
 def tip(message: str) -> None:
-    """Print a helpful tip / info message to stdout in dim cyan."""
-    console.print(f"[dim cyan]ℹ {message}[/dim cyan]")
+    """Print a helpful tip / info message."""
+    console.print(f"[{Colors.INFO}]{Icons.info()} {message}[/{Colors.INFO}]")
 
 
-# ---------------------------------------------------------------------------
-# Structured exception display
-# ---------------------------------------------------------------------------
+def success(message: str) -> None:
+    """Print a success message."""
+    console.print(
+        f"[bold {Colors.SUCCESS}]{Icons.check()}[/bold {Colors.SUCCESS}] {message}"
+    )
+
+
+def info(message: str) -> None:
+    """Print an informational message."""
+    console.print(f"[{Colors.TEXT_TERTIARY}]{message}[/{Colors.TEXT_TERTIARY}]")
 
 
 def handle_error(
     exc: Exception,
     context: str = "Command",
     suggest_action: Optional[str] = None,
+    show_traceback: bool = False,
 ) -> None:
-    """Display a structured error panel for an unhandled exception.
-
-    Args:
-        exc: The exception that was raised.
-        context: Human-readable name for the operation that failed.
-        suggest_action: Optional actionable advice shown below the error.
-    """
-    exc_type = type(exc).__name__
-    exc_msg = str(exc)
-
-    lines = [
-        f"[bold]{context}[/bold] failed",
-        "",
-        f"[dim]{exc_type}:[/dim] {exc_msg}",
-    ]
-    if suggest_action:
-        lines += ["", f"[italic]{suggest_action}[/italic]"]
-
-    panel = Panel(
-        "\n".join(lines),
-        title="[bold red]Error[/bold red]",
-        border_style="red",
-        padding=(1, 2),
+    """Display a diagnostic error card."""
+    print_error_card(
+        exc,
+        context=context,
+        suggest_action=suggest_action,
+        show_traceback=show_traceback,
     )
-    err_console.print(panel)
+
+
+# Backward-compatible aliases
+print_sql = print_sql_card
+
+__all__ = [
+    # Banner
+    "print_cognitive_step",
+    "print_hero_banner",
+    "print_hud",
+    "print_suggested_prompts",
+    "render_hero_banner",
+    "render_hud",
+    # Cards
+    "print_error_card",
+    "print_metrics",
+    "print_sql_card",
+    "print_success_card",
+    "render_error_card",
+    "render_metrics_panel",
+    "render_sql_card",
+    # Tables
+    "print_results_table",
+    "render_results_table",
+    # Blocks
+    "CommandBlock",
+    "StageTracker",
+    "render_command_block",
+    "render_telemetry_strip",
+    "print_telemetry_strip",
+    "render_action_hints",
+    "render_stage_line",
+    "print_stages_progress",
+    "QUERY_STAGES",
+    "DRY_RUN_STAGES",
+    "INTROSPECT_STAGES",
+    # Status bar
+    "render_status_bar",
+    "print_status_bar",
+    # Palette
+    "render_command_list",
+    "render_help_sheet",
+    "print_help_sheet",
+    "fuzzy_match",
+    "SLASH_COMMANDS",
+    # AI Context
+    "render_ai_explanation",
+    "print_ai_explanation",
+    "render_table_suggestion",
+    "render_error_context_hint",
+    # Theme
+    "Colors",
+    "Icons",
+    "Typography",
+    "Spacing",
+    "ROUNDED_BOX",
+    "SIMPLE_BOX",
+    "HEAVY_BOX",
+    "GRADIENT_AURORA",
+    "GRADIENT_NEON",
+    "GRADIENT_OCEAN",
+    "GRADIENT_SUNSET",
+    "console",
+    "err_console",
+    "badge",
+    "dim_label",
+    "status_dot",
+    "progress_bar",
+    "gradient_text",
+    "latency_color",
+    # Helpers
+    "print_header",
+    "print_footer",
+    "print_divider",
+    "status",
+    "error",
+    "warning",
+    "tip",
+    "success",
+    "info",
+    "handle_error",
+    "print_sql",
+]
