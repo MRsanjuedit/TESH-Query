@@ -140,6 +140,11 @@ def process_nl_query(
         help="Force cloud model inference (Gemini or Azure OpenAI)",
         rich_help_panel=PANEL_ROUTING,
     ),
+    connection: str = typer.Option(
+        None, "--connection", "-c", metavar="NAME",
+        help="Target named database connection to execute against",
+        rich_help_panel=PANEL_EXECUTION,
+    ),
     verbose: bool = typer.Option(
         None, "--verbose",
         help="Write detailed logs to ~/.teshq/logs/",
@@ -265,7 +270,7 @@ def process_nl_query(
 
         with status("Initializing TESH Engine..."):
             db_url_val = get_db_url()
-            engine = TeshEngine(db_url=db_url_val, provider=provider_override)
+            engine = TeshEngine(db_url=db_url_val, provider=provider_override, connection_name=connection)
 
         dialect_name = getattr(engine, "_dialect", "SQL") or "SQL"
 
@@ -277,7 +282,12 @@ def process_nl_query(
                     msg = f"[{Colors.PRIMARY}]{name}[/{Colors.PRIMARY}]{detail_str}"
                     if hasattr(s, "update"):
                         s.update(msg)
-                engine_result = engine.query(natural_language_request, dry_run=True, on_progress=_prog_dry)
+                engine_result = engine.query(
+                    natural_language_request,
+                    connection=connection,
+                    dry_run=True,
+                    on_progress=_prog_dry,
+                )
             sql_query, parameters = engine_result.sql, engine_result.parameters
             print_sql_card(sql_query, dialect=dialect_name, parameters=parameters, title="SQL")
 
@@ -300,9 +310,14 @@ def process_nl_query(
                     msg = f"[{Colors.PRIMARY}]{name}[/{Colors.PRIMARY}]{detail_str}"
                     if hasattr(s, "update"):
                         s.update(msg)
-                engine_result = engine.query(natural_language_request, dry_run=False, on_progress=_prog_exec)
+                engine_result = engine.query(
+                    natural_language_request,
+                    connection=connection,
+                    dry_run=False,
+                    on_progress=_prog_exec,
+                )
         else:
-            db_display = db_url_val.split("@")[-1] if db_url_val and "@" in db_url_val else "database"
+            db_display = connection or (db_url_val.split("@")[-1] if db_url_val and "@" in db_url_val else "database")
             status_msg = "Synthesizing SQL (dry-run)..." if dry_run else f"Processing query on {db_display}..."
             with status(status_msg) as s:
                 def _prog(idx, name, detail=None):
@@ -310,7 +325,12 @@ def process_nl_query(
                     msg = f"[{Colors.PRIMARY}]{name}[/{Colors.PRIMARY}]{detail_str}"
                     if hasattr(s, "update"):
                         s.update(msg)
-                engine_result = engine.query(natural_language_request, dry_run=dry_run, on_progress=_prog)
+                engine_result = engine.query(
+                    natural_language_request,
+                    connection=connection,
+                    dry_run=dry_run,
+                    on_progress=_prog,
+                )
 
             sql_query, parameters = engine_result.sql, engine_result.parameters
             print_sql_card(sql_query, dialect=dialect_name, parameters=parameters, title="SQL")

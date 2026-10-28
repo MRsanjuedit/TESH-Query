@@ -28,6 +28,7 @@ from teshq.cli.ui.theme import Colors, Icons, Spacing, Typography, latency_color
 #  DESIGN SYSTEM TESTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestDesignSystem:
     """Tests for the Obsidian Instrument design system."""
 
@@ -260,6 +261,23 @@ class TestCommandBlocks:
         assert grid is not None
         tracker.finish()
         assert tracker.current_idx == len(QUERY_STAGES)
+
+    def test_stage_tracker_accepts_query_event(self):
+        """Verify StageTracker adapts QueryEvent objects from streaming callbacks."""
+        from rich.console import Console
+        from teshq.events import QueryEvent, EventType
+        c = Console(record=True)
+        tracker = StageTracker(QUERY_STAGES, console=c)
+        evt = QueryEvent(
+            event_type=EventType.STAGE_STARTED,
+            stage="table_selection",
+            message="Selecting relevant tables",
+            data={"detail": "filtered to 3 tables"},
+        )
+        tracker.on_progress(evt)
+        assert tracker.current_idx == 2
+        assert tracker.current_detail == "filtered to 3 tables"
+        tracker.finish()
 
     def test_stage_tracker_failure(self):
         """Verify StageTracker marks failed stage on exception."""

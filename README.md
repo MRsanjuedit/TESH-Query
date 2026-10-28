@@ -231,6 +231,7 @@ teshq query [OPTIONS] [REQUEST]
 
 | Flag | Description |
 | :--- | :--- |
+| `-c, --connection <NAME>` | Target a registered named database connection |
 | `--dry-run` | Generate and validate SQL, but **do not execute** it |
 | `-i, --confirm` | Interactively inspect and confirm generated SQL before running |
 | `--explain` | Print execution plan, selected tables, SQL, and timing breakdown |
@@ -247,6 +248,9 @@ teshq query [OPTIONS] [REQUEST]
 **Examples:**
 
 ```bash
+# Query a specific named connection
+teshq query -c ecommerce "What are the top 10 products by revenue?"
+
 # Dry run: check generated SQL without executing
 teshq query "Which customers have overdue invoices?" --dry-run
 
@@ -263,6 +267,11 @@ teshq query "Update inventory counts for inactive items" -i
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
+| `teshq db connection add` | `teshq db connection add <name> <url>` | Register a named database connection with credentials |
+| `teshq db connection list` | `teshq db connection list` | List all registered connections with masked credentials |
+| `teshq db connection test` | `teshq db connection test <name>` | Verify health and connectivity of a named connection |
+| `teshq db connection remove`| `teshq db connection remove <name>` | Unregister connection and safely dispose its engine pool |
+| `teshq db connection default`| `teshq db connection default <name>` | Set the active default database connection |
 | `teshq config` | `teshq config --wizard` | Interactive configuration wizard (DB + AI in 30 seconds) |
 | `teshq config validate`| `teshq config validate` | Validate database connectivity, pooling, and production readiness |
 | `teshq db explore` | `teshq db explore` | Interactive visual schema explorer |
@@ -380,6 +389,63 @@ payload = result.to_payload()
 print(payload["chart_hints"])  # e.g., {'type': 'bar', 'x_axis': 'department', 'y_axis': 'headcount'}
 ```
 
+### 6. Named Multi-Database Connections & Routing
+
+Manage $N$ isolated database connections simultaneously with independent connection pools, schema caches, and credential masking:
+
+```python
+import teshq
+
+client = teshq.TeshQuery(gemini_api_key="your-gemini-api-key")
+
+# Register named connections
+client.add_connection(name="ecommerce", db_url="sqlite:///testing/databases/ecommerce.sqlite")
+client.add_connection(name="analytics", db_url="postgresql://user:${DB_PASSWORD}@warehouse:5432/analytics")
+
+# List all configured connections (credentials automatically masked)
+for conn in client.list_connections():
+    print(f"[{conn.name}] {conn.dialect} -> {conn.masked_url} (Default: {conn.is_default})")
+
+# Query specific databases by name
+ecom_df = client.query("What are the top 10 products by revenue?", connection="ecommerce")
+fin_df = client.query("Total recognized revenue by fiscal quarter", connection="analytics")
+
+# Test connectivity and dispose connection pool
+is_healthy, msg = client.test_named_connection("ecommerce")
+client.remove_connection("analytics")  # Safely disposes SQLAlchemy engine and connection pool
+```
+
+### 7. Cross-Database Natural Language Federation
+
+Orchestrate complex cross-source queries across independent databases without distributed database joins:
+
+```python
+from teshq.core.federation import CrossDatabasePlan, SubquerySpec
+
+# Execute a structured cross-database query plan
+result = client.query_cross_db(
+    "Compare monthly ecommerce GMV against finance ledger revenue",
+    subqueries=[
+        SubquerySpec(
+            connection_name="ecommerce",
+            sql="SELECT strftime('%Y-%m', order_date) AS month, SUM(total_amount) AS ecom_gmv FROM orders GROUP BY month;",
+            alias="ecom"
+        ),
+        SubquerySpec(
+            connection_name="analytics",
+            sql="SELECT fiscal_month AS month, recognized_revenue AS fin_rev FROM ledger_monthly_revenue;",
+            alias="fin"
+        )
+    ],
+    join_key="month",
+    join_type="inner"
+)
+
+# Access combined records, Pandas DataFrame, and source attribution metadata
+print(result.dataframe.head())
+print("Source attribution:", result.source_attribution)
+```
+
 ---
 
 ## Supported Databases & Dialects
@@ -441,9 +507,38 @@ teshq health
 # Run configuration and production readiness assessment
 teshq config validate
 
-# Run unit and integration tests (319 tests)
-pytest tests/unit/
+# Run unit and integration tests (400+ tests)
+pytest tests/unit/ tests/integration/
 ```
+
+---
+
+## Testing & Fixture Database (`/testing`)
+
+TESH-Query includes a realistic, Amazon-scale ecommerce testing database fixture (`testing/databases/ecommerce.sqlite`) with **45 normalized relational tables**, **38 explicit secondary indexes**, and **1,123,500+ rows** of synthetic data for testing schema pruning, query generation, complex joins, and cross-database federation.
+
+See [testing/README.md](testing/README.md) for full architecture and schema details.
+
+### Generate Synthetic Fixture
+```bash
+# Standard profile (~1.12M rows, 93 MB in ~4s)
+python testing/create_database.py --profile standard --seed 42 --force
+
+# Large profile (~10M rows, ~900 MB in ~45s)
+python testing/create_database.py --profile large --seed 42 --force
+```
+
+### Verify Integrity & Financial Invariants
+```bash
+python testing/verify_database.py
+```
+Validates SQLite integrity, 0 foreign-key violations, 45 domain tables, 38 indexes, minimum row counts, synthetic email purity, and 7 business invariants (order totals, payment reconciliation, line total reconciliation, refund ceilings, chronological sequence).
+
+### Run Scalability & Execution Latency Benchmarks
+```bash
+python testing/run_benchmarks.py
+```
+Measures schema introspection time, graph retrieval latency, and query execution times across 32 natural language benchmark queries.
 
 ---
 

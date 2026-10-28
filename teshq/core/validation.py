@@ -28,8 +28,7 @@ class ConfigValidator:
 
     # Use unified connector's supported database list
     SUPPORTED_DB_TYPES: set = set(UnifiedDatabaseConnector.get_supported_databases())
-    
-    GEMINI_API_KEY_PATTERN = re.compile(r"^AIza[0-9A-Za-z\-_]{35,}$")
+    GEMINI_API_KEY_PATTERN = re.compile(r"^(AIza[0-9A-Za-z\-_]{35,}|AQ\.[0-9A-Za-z\-_.]{20,})$")
 
     @staticmethod
     def validate_database_url(db_url: str) -> Tuple[bool, str]:
@@ -40,11 +39,12 @@ class ConfigValidator:
         try:
             # Use unified connector to get comprehensive database info
             db_info = UnifiedDatabaseConnector.get_database_info(db_url)
-            
+
             if not db_info.get("supported", False):
                 supported_types = ", ".join(UnifiedDatabaseConnector.get_supported_databases())
-                return False, f"Unsupported database type: {db_info.get('database_type')}. Supported types: {supported_types}"
-            
+                db_t = db_info.get('database_type')
+                return False, f"Unsupported database type: {db_t}. Supported types: {supported_types}"
+
             parsed = urlparse(db_url)
             if not parsed.scheme:
                 return False, "Database URL must include a scheme (postgresql://, mysql://, sqlite://, etc.)"
@@ -92,7 +92,7 @@ class ConfigValidator:
             # Use unified connector for comprehensive connection testing
             success, message = UnifiedDatabaseConnector.test_connection(db_url)
             return success, message
-            
+
         except Exception as e:
             return False, f"Connection test failed: {str(e)}"
 
@@ -106,7 +106,7 @@ class ConfigValidator:
 
         # Check basic format
         if not ConfigValidator.GEMINI_API_KEY_PATTERN.match(api_key):
-            return False, "Invalid Gemini API key format. Expected format: AIza... (39 characters total)"
+            return False, "Invalid Gemini API key format. Expected Google API key (starting with 'AIza' or 'AQ.')"
 
         return True, "Valid Gemini API key format"
 
@@ -192,7 +192,6 @@ class ConfigValidator:
                     errors.append(f"{path_key}: {message}")
 
         return errors
-
 
 
 class CLIValidator:

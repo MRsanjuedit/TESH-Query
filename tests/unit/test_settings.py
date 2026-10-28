@@ -42,14 +42,13 @@ class TestSettingsDefaults:
         import teshq.config.settings as mod
         mod._settings_cache = None
 
-
         s = mod.get_settings()
         assert s.is_configured is False
 
     def test_is_configured_true(self, monkeypatch):
         monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
         monkeypatch.setenv("GEMINI_API_KEY", "test-key-123")
-        
+
         import teshq.config.settings as mod
         mod._settings_cache = None
 
@@ -58,7 +57,7 @@ class TestSettingsDefaults:
 
     def test_no_telemetry_env(self, monkeypatch):
         monkeypatch.setenv("TESHQ_NO_TELEMETRY", "1")
-        
+
         import teshq.config.settings as mod
         mod._settings_cache = None
 
@@ -74,7 +73,7 @@ class TestSettingsDefaults:
 
     def test_masked_database_url_masks_password(self, monkeypatch):
         monkeypatch.setenv("DATABASE_URL", "postgresql://user:secretpassword@localhost/mydb")
-        
+
         import teshq.config.settings as mod
         mod._settings_cache = None
 

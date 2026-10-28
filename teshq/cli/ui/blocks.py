@@ -26,14 +26,13 @@ from rich.table import Table
 from rich.text import Text
 
 from teshq.cli.ui.theme import (
+    ROUNDED_BOX,
     Colors,
     Icons,
     Spacing,
-    ROUNDED_BOX,
     console,
     latency_color,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  COGNITIVE STAGES — Progress Narrative
@@ -176,13 +175,32 @@ class StageTracker:
         self._live.start()
         return self
 
-    def on_progress(self, step_idx: int, stage_name: str = "", detail: Optional[str] = None) -> None:
-        if self.current_idx < step_idx and self.current_detail:
-            self.stage_details[self.current_idx] = self.current_detail
-        self.current_idx = step_idx
-        self.current_detail = detail or ""
-        if self._live:
-            self._live.update(self._render())
+    def on_progress(self, step_idx: Any, stage_name: str = "", detail: Optional[str] = None) -> None:
+        if hasattr(step_idx, "stage"):
+            stage_map = {
+                "parsing": 0,
+                "schema": 1,
+                "table_selection": 2,
+                "sql_gen": 3,
+                "validation": 4,
+                "execution": 5,
+            }
+            stage_key = getattr(step_idx, "stage", "")
+            idx = stage_map.get(stage_key, self.current_idx)
+            name = getattr(step_idx, "message", stage_name)
+            data = getattr(step_idx, "data", None) or {}
+            det = data.get("detail", detail)
+            step_idx = idx
+            stage_name = name
+            detail = det
+
+        if isinstance(step_idx, int):
+            if self.current_idx < step_idx and self.current_detail:
+                self.stage_details[self.current_idx] = self.current_detail
+            self.current_idx = step_idx
+            self.current_detail = detail or ""
+            if self._live:
+                self._live.update(self._render())
 
     def finish(self) -> None:
         if self.current_detail and self.current_idx not in self.stage_details:

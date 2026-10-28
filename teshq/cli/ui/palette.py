@@ -15,8 +15,6 @@ from rich.text import Text
 
 from teshq.cli.ui.theme import Colors, Icons, console
 
-
-
 # ── Slash command registry ────────────────────────────────────────────────────
 
 SLASH_COMMANDS: List[Tuple[str, str]] = [
