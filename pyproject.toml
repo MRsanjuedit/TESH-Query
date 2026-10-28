@@ -307,4 +307,3 @@ dev = [
     "build",
     "mkdocs-material",
 ]
-
