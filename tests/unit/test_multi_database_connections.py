@@ -10,8 +10,8 @@ import pytest
 from teshq.core.connection import (
     ConnectionManager,
     DatabaseConnection,
-    mask_database_url,
     expand_connection_url,
+    mask_database_url,
 )
 
 
@@ -180,3 +180,171 @@ class TestConnectionManagerLifecycle:
         success_missing, msg_missing = manager.test_named_connection("non_existent")
         assert success_missing is False
         assert "not found" in msg_missing.lower()
+
+    def test_dispose_all_alias(self, manager, tmp_path):
+        db = tmp_path / "dispose_test.sqlite"
+        db.touch()
+        url = f"sqlite:///{db}"
+        manager.add_connection(name="disp", db_url=url)
+        manager.get_engine(url, engine_name="disp")
+        assert len(manager._engines) > 0
+        manager.dispose_all()
+        assert len(manager._engines) == 0
+
+    def test_concurrent_connection_operations(self, manager, tmp_path):
+        import concurrent.futures
+
+        def worker(idx):
+            db = tmp_path / f"thread_{idx}.sqlite"
+            db.touch()
+            url = f"sqlite:///{db}"
+            conn_name = f"tconn_{idx}"
+            manager.add_connection(name=conn_name, db_url=url)
+            retrieved = manager.get_named_connection(conn_name)
+            assert retrieved.name == conn_name
+            engine = manager.get_engine(url, engine_name=conn_name)
+            assert engine is not None
+            conns = manager.list_connections()
+            assert len(conns) > 0
+            return True
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(worker, i) for i in range(16)]
+            results = [f.result() for f in futures]
+            assert all(results)
+
+    def test_read_only_query_with_comments(self, manager):
+        assert manager._is_read_only("SELECT id FROM users") is True
+        assert manager._is_read_only("SELECT /* update */ id FROM users") is True
+        assert manager._is_read_only("SELECT id FROM users -- update counter") is True
+        assert manager._is_read_only("UPDATE users SET name = 'alice'") is False
+        assert manager._is_read_only("DELETE FROM users WHERE id = 1") is False
+
+    def test_save_and_reload_connection_with_password(self, manager, tmp_path, monkeypatch):
+        test_env = tmp_path / ".teshq.env"
+        test_yaml = tmp_path / "connections.yaml"
+        monkeypatch.setattr("teshq.config.secrets.SECRETS_FILE", test_env)
+        monkeypatch.setattr("teshq.config.paths.CONNECTIONS_FILE", test_yaml)
+        monkeypatch.setattr("teshq.core.connection.CONNECTIONS_FILE", test_yaml)
+
+        url_with_pass = "postgresql://dbuser:MySuperPassword999@remotehost:5432/appdb"
+        manager.add_connection(name="secure_pg", db_url=url_with_pass, persist=True)
+
+        # Fresh manager loading from yaml
+        new_mgr = ConnectionManager(auto_load=False)
+        new_mgr._load_saved_connections(file_path=test_yaml)
+        loaded_conn = new_mgr.get_named_connection("secure_pg")
+        assert loaded_conn.name == "secure_pg"
+        assert loaded_conn.db_url == url_with_pass
+        assert loaded_conn.masked_url == "postgresql://dbuser:***@remotehost:5432/appdb"
+
+    def test_combine_result_sets_memory_guard(self):
+        import pandas as pd
+
+        from teshq.core.federation import CrossDatabaseOrchestrator
+        orch = CrossDatabaseOrchestrator()
+        orch.MAX_COMBINED_ROWS = 100
+
+        # Create two dataframes that would create 10,000 joined rows (100 x 100)
+        df1 = pd.DataFrame({"id": ["A"] * 100, "val1": range(100)})
+        df2 = pd.DataFrame({"id": ["A"] * 100, "val2": range(100)})
+
+        combined, _ = orch._combine_result_sets(
+            source_dfs={"src1": df1, "src2": df2},
+            join_keys=["id"],
+            join_type="inner",
+        )
+        assert len(combined) == 100
+
+    def test_sqlite_pragmas_applied_on_connect(self, manager, tmp_path):
+        from sqlalchemy import text
+        db_file = tmp_path / "pragmas.sqlite"
+        db_file.touch()
+        url = f"sqlite:///{db_file}"
+        engine = manager.get_engine(url, "sqlite_pragmas")
+        with engine.connect() as conn:
+            sync = conn.execute(text("PRAGMA synchronous")).scalar()
+            cache = conn.execute(text("PRAGMA cache_size")).scalar()
+            temp = conn.execute(text("PRAGMA temp_store")).scalar()
+            assert sync == 1  # NORMAL
+            assert cache == -64000  # 64MB
+            assert temp == 2  # MEMORY
+
+    def test_cross_database_parallel_execution(self, tmp_path):
+        import sqlite3
+        from teshq.core.federation import (
+            CrossDatabaseOrchestrator,
+            CrossDatabasePlan,
+            SubquerySpec,
+        )
+
+        db1_path = tmp_path / "db1.sqlite"
+        db2_path = tmp_path / "db2.sqlite"
+
+        for path, tbl, col, val in (
+            (db1_path, "t1", "v1", 100),
+            (db2_path, "t2", "v2", 200),
+        ):
+            c = sqlite3.connect(str(path))
+            c.execute(f"CREATE TABLE {tbl} (id INT PRIMARY KEY, {col} INT);")
+            c.execute(f"INSERT INTO {tbl} VALUES (1, {val});")
+            c.commit()
+            c.close()
+
+        manager = ConnectionManager(auto_load=False)
+        manager.add_connection("db1", f"sqlite:///{db1_path}")
+        manager.add_connection("db2", f"sqlite:///{db2_path}")
+
+        orch = CrossDatabaseOrchestrator(connection_manager=manager)
+
+        plan = CrossDatabasePlan(
+            plan_id="p_parallel",
+            query_text="Join t1 and t2 on id",
+            subqueries=[
+                SubquerySpec(connection_name="db1", sql="SELECT id, v1 FROM t1"),
+                SubquerySpec(connection_name="db2", sql="SELECT id, v2 FROM t2"),
+            ],
+            join_keys=["id"],
+            join_type="inner",
+        )
+
+        res = orch.execute_plan(plan)
+        assert res.success is True
+        assert len(res.rows) == 1
+        assert res.rows[0]["db1_v1"] == 100
+        assert res.rows[0]["db2_v2"] == 200
+
+    def test_tesh_engine_retriever_caching(self, tmp_path, monkeypatch):
+        import sqlite3
+        from teshq.core.engine import TeshEngine
+        from teshq.core.models import QueryPlan, SQLQuery
+
+        db_file = tmp_path / "cached_retriever.sqlite"
+        c = sqlite3.connect(str(db_file))
+        c.execute("CREATE TABLE products (id INT PRIMARY KEY, name TEXT);")
+        c.commit()
+        c.close()
+
+        class MockPlanner:
+            def plan(self, query, schema, callbacks=None, **kwargs):
+                return QueryPlan(tables=["products"], filters=[], aggregations=[], joins_needed=[])
+
+        class MockSQLGen:
+            def generate(self, query, schema, plan, callbacks=None, **kwargs):
+                return SQLQuery(query="SELECT id, name FROM products;", parameters={}, explanation="Test")
+
+        engine = TeshEngine(db_url=f"sqlite:///{db_file}", api_key="test_key", provider="gemini")
+        monkeypatch.setattr(engine, "_get_planner", lambda: MockPlanner())
+        monkeypatch.setattr(engine, "_get_sql_gen", lambda: MockSQLGen())
+
+        # First query should populate retriever cache
+        res1 = engine.query("List products", dry_run=True)
+        assert res1.success is True
+        assert len(engine._retrievers) == 1
+        first_retriever = next(iter(engine._retrievers.values()))
+
+        # Second query should reuse the exact same retriever instance
+        res2 = engine.query("Show all product records", dry_run=True)
+        assert res2.success is True
+        assert len(engine._retrievers) == 1
+        assert next(iter(engine._retrievers.values())) is first_retriever

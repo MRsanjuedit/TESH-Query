@@ -32,55 +32,75 @@ class ConfigValidator:
 
     @staticmethod
     def validate_database_url(db_url: str) -> Tuple[bool, str]:
-        """Validate database URL format using unified connector system."""
+        """Validate database URL format supporting all SQLAlchemy database dialects."""
         if not db_url or not isinstance(db_url, str):
             return False, "Database URL cannot be empty"
 
+        db_url = db_url.strip()
+
         try:
-            # Use unified connector to get comprehensive database info
-            db_info = UnifiedDatabaseConnector.get_database_info(db_url)
+            from sqlalchemy.engine import make_url
+            parsed_url = None
+            try:
+                parsed_url = make_url(db_url)
+                backend = parsed_url.get_backend_name().lower()
+            except Exception:
+                parsed = urlparse(db_url)
+                if not parsed.scheme:
+                    return False, "Database URL must include a scheme (postgresql://, mysql://, sqlite://, etc.)"
+                backend = parsed.scheme.lower().split("+")[0]
 
-            if not db_info.get("supported", False):
-                supported_types = ", ".join(UnifiedDatabaseConnector.get_supported_databases())
-                db_t = db_info.get('database_type')
-                return False, f"Unsupported database type: {db_t}. Supported types: {supported_types}"
-
-            parsed = urlparse(db_url)
-            if not parsed.scheme:
+            if not backend:
                 return False, "Database URL must include a scheme (postgresql://, mysql://, sqlite://, etc.)"
 
-            # Validate scheme is supported
-            detected_type = UnifiedDatabaseConnector.detect_database_type(db_url)
+            # Validate detected database type
+            detected_type = backend
+            if detected_type in ("postgres", "cockroachdb"):
+                detected_type = "postgresql"
+            elif detected_type in ("sqlserver", "mssql"):
+                detected_type = "mssql"
+            elif detected_type == "mariadb":
+                detected_type = "mysql"
 
-            # Special validation for SQLite
-            if detected_type == "sqlite":
-                if parsed.path:
+            # Check supported database info (always True via Generic connector)
+            db_info = UnifiedDatabaseConnector.get_database_info(db_url)
+            if not db_info.get("supported", False):
+                supported_types = ", ".join(UnifiedDatabaseConnector.get_supported_databases())
+                return False, f"Unsupported database type: {detected_type}. Supported types: {supported_types}"
+
+            # Special validation for embedded / file-based databases: SQLite & DuckDB
+            if detected_type in ("sqlite", "duckdb"):
+                path_str = getattr(parsed_url, "database", None) or urlparse(db_url).path or ""
+                if ":memory:" in db_url or path_str == ":memory:":
+                    return True, f"Valid {detected_type} database URL format"
+                if path_str:
                     import os
-                    path_str = parsed.path
-                    # sqlite:////absolute/path.db → parsed.path = '//absolute/path.db'
-                    # sqlite:///relative.db      → parsed.path = '/relative.db' (relative to CWD)
                     if path_str.startswith("//"):
-                        # Absolute path (4 slashes total): strip exactly one leading slash
                         db_path = Path(path_str[1:])
-                    else:
-                        # Relative path (3 slashes total): resolve against CWD
+                    elif path_str.startswith("/"):
                         db_path = Path.cwd() / path_str[1:]
+                    else:
+                        db_path = Path.cwd() / path_str
                     parent = db_path.parent
                     if not parent.exists():
-                        return False, f"Directory for SQLite database does not exist: {parent}"
+                        return False, f"Directory for {detected_type.capitalize()} database does not exist: {parent}"
                     if not os.access(parent, os.W_OK):
-                        return False, f"Directory for SQLite database is not writable: {parent}"
+                        return False, f"Directory for {detected_type.capitalize()} database is not writable: {parent}"
                 else:
-                    return False, "SQLite URL must include a path to the database file"
+                    return False, f"{detected_type.capitalize()} URL must include a path to the database file"
 
-            # For non-SQLite, validate required components
+            # For network / client-server databases
             else:
-                if not parsed.hostname:
+                host = getattr(parsed_url, "host", None)
+                parsed_fb = urlparse(db_url)
+                if not host and not parsed_fb.hostname and not parsed_fb.netloc:
                     return False, f"{detected_type} database URL must include hostname"
-                if not parsed.path or parsed.path == "/":
-                    return False, f"{detected_type} database URL must include database name"
+                database = getattr(parsed_url, "database", None) or parsed_fb.path
+                if not database or database == "/":
+                    if detected_type not in ("snowflake", "bigquery", "clickhouse", "teradata", "duckdb"):
+                        return False, f"{detected_type} database URL must include database name"
 
-            return True, f"Valid {detected_type} database URL format"
+            return True, f"Valid {backend} database URL format"
 
         except Exception as e:
             return False, f"Invalid database URL format: {str(e)}"
@@ -213,7 +233,7 @@ class CLIValidator:
 
         # Check for potential SQL injection patterns
         dangerous_patterns = [
-            r";\s*(drop|delete|truncate|alter|create|insert|update)\s+",
+            r";\s*(drop|delete|truncate|alter|create|insert|update|attach|detach|grant|revoke|copy|shutdown)\s+",
             r"--",
             r"/\*.*\*/",
             r"xp_cmdshell",
@@ -226,6 +246,9 @@ class CLIValidator:
             r"'\s*;\s*declare",  # SQL Server specific attacks
             r"into\s+outfile",  # MySQL file writing
             r"load_file\s*\(",  # MySQL file reading
+            r"pg_read_file\s*\(",  # PostgreSQL file reading
+            r"pg_ls_dir\s*\(",  # PostgreSQL directory listing
+            r"sys_eval\s*\(",  # MySQL UDF code execution
         ]
 
         for pattern in dangerous_patterns:

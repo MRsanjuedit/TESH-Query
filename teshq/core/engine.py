@@ -169,6 +169,7 @@ class TeshEngine:
         self._llm_client: Optional[LLMClient] = None
         self._schema_graph: Optional[SchemaGraph] = None
         self._schema_graphs: Dict[str, SchemaGraph] = {}
+        self._retrievers: Dict[str, SchemaRetriever] = {}
         self._sql_gens: Dict[str, SQLGenerator] = {}
 
         # Stored during query() so _execute_with_retry can access them
@@ -292,8 +293,14 @@ class TeshEngine:
         # Save to connection-specific cache
         try:
             SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, "w", encoding="utf-8") as f:
+            temp_cache_file = cache_file.with_name(f".{cache_file.name}.tmp.{os.getpid()}")
+            with open(temp_cache_file, "w", encoding="utf-8") as f:
                 json.dump(schema_info, f)
+            try:
+                os.chmod(temp_cache_file, 0o600)
+            except Exception:
+                pass
+            os.replace(temp_cache_file, cache_file)
             logger.debug("Schema cached to disk", cache_file=str(cache_file))
         except Exception as e:
             logger.warning("Failed to write schema cache", error=str(e))
@@ -424,7 +431,14 @@ class TeshEngine:
 
             # Retrieve the most relevant tables via TF-IDF cosine similarity.
             _notify(2, "Selecting relevant tables", "ranking schema entities")
-            retriever = SchemaRetriever(graph)
+            retriever_key = f"{active_conn_name}:{current_db_url}"
+            if schema_graph is not None:
+                retriever = SchemaRetriever(schema_graph)
+            elif retriever_key in self._retrievers:
+                retriever = self._retrievers[retriever_key]
+            else:
+                retriever = SchemaRetriever(graph)
+                self._retrievers[retriever_key] = retriever
 
             # Prune tables and format schema string based on active provider
             if self._provider == "local":

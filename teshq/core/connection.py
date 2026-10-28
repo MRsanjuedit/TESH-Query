@@ -5,8 +5,10 @@ Provides connection pooling, timeout configuration, and resource management
 to ensure reliable database operations under production conditions.
 """
 
+import atexit
 import os
 import re
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -26,16 +28,20 @@ from teshq.utils.logging import log_operation, logger, metrics
 from teshq.core.retry import retry_database_operation
 
 
-def mask_database_url(url: str) -> str:
-    """Mask password and credentials in a database URL for safe logging and display."""
-    if not url:
+def mask_database_url(url_or_text: str) -> str:
+    """Mask password and credentials in a database URL or free-form text for safe logging and display."""
+    if not url_or_text:
         return ""
     try:
-        u = make_url(url)
+        u = make_url(url_or_text)
         return u.render_as_string(hide_password=True)
     except Exception:
-        # Fallback regex masking for passwords in URI format
-        return re.sub(r":([^@/]+)@", ":*****@", url)
+        pass
+    # Fallback regex masking for passwords in URI format user:password@host
+    res = re.sub(r":([^:@/ \t\n\r]+)@([a-zA-Z0-9_.-]+)", r":***@\2", url_or_text)
+    # Regex masking for key-value connection strings like password=...
+    res = re.sub(r"(?i)(password|pwd|secret)\s*=\s*['\"]?[^'\";\s]+['\"]?", r"\1=***", res)
+    return res
 
 
 def expand_connection_url(url: str) -> str:
@@ -140,6 +146,7 @@ class ConnectionManager:
 
     def __init__(self, config: Optional[ConnectionConfig] = None, auto_load: bool = True):
         self.config = config or ConnectionConfig()
+        self._lock = threading.RLock()
         self._engines: Dict[str, Engine] = {}
         self._connections: Dict[str, DatabaseConnection] = {}
         self._default_connection_name: Optional[str] = None
@@ -186,51 +193,82 @@ class ConnectionManager:
 
         engine._metrics_listeners_installed = True
 
+    def _setup_sqlite_optimizations(self, engine: Engine):
+        """Configure SQLite pragmas for maximum query performance and memory caching."""
+        if getattr(engine, "_sqlite_optimizations_installed", False):
+            return
+
+        @event.listens_for(engine, "connect")
+        def _optimize_sqlite_connection(dbapi_connection, connection_record):
+            try:
+                cursor = dbapi_connection.cursor()
+                for pragma in (
+                    "PRAGMA synchronous = NORMAL",
+                    "PRAGMA cache_size = -64000",
+                    "PRAGMA temp_store = MEMORY",
+                    "PRAGMA mmap_size = 268435456",
+                ):
+                    try:
+                        cursor.execute(pragma)
+                    except Exception:
+                        pass
+                cursor.close()
+            except Exception:
+                pass
+
+        engine._sqlite_optimizations_installed = True
+
     def get_engine(self, database_url: str, engine_name: str = "default") -> Engine:
         """Get or create a database engine with the unified connector system."""
         cache_key = f"{engine_name}:{database_url}"
-        if cache_key in self._engines:
-            return self._engines[cache_key]
+        with self._lock:
+            if cache_key in self._engines:
+                return self._engines[cache_key]
 
-        with log_operation("create_database_engine", engine_name=engine_name):
-            # Use unified connector system for enhanced database support
-            config_dict = {
-                "pool_size": self.config.pool_size,
-                "max_overflow": self.config.max_overflow,
-                "pool_timeout": self.config.pool_timeout,
-                "pool_recycle": self.config.pool_recycle,
-                "connect_timeout": self.config.connect_timeout,
-                "pool_pre_ping": self.config.pool_pre_ping,
-                "echo": self.config.echo,
-            }
+            with log_operation("create_database_engine", engine_name=engine_name):
+                # Use unified connector system for enhanced database support
+                config_dict = {
+                    "pool_size": self.config.pool_size,
+                    "max_overflow": self.config.max_overflow,
+                    "pool_timeout": self.config.pool_timeout,
+                    "pool_recycle": self.config.pool_recycle,
+                    "connect_timeout": self.config.connect_timeout,
+                    "pool_pre_ping": self.config.pool_pre_ping,
+                    "echo": self.config.echo,
+                }
 
-            try:
-                engine = UnifiedDatabaseConnector.create_engine(database_url, config_dict)
-                self._engines[cache_key] = engine
+                try:
+                    engine = UnifiedDatabaseConnector.create_engine(database_url, config_dict)
+                    self._engines[cache_key] = engine
 
-                # Set up listeners only once per engine
-                self._setup_metrics_listeners(engine, engine_name)
+                    # Set up listeners only once per engine
+                    self._setup_metrics_listeners(engine, engine_name)
 
-                db_type = UnifiedDatabaseConnector.detect_database_type(database_url)
-                logger.info(
-                    "Database engine created",
-                    engine_name=engine_name,
-                    database_type=db_type,
-                    supports_pooling=db_type != "sqlite"
-                )
+                    db_type = UnifiedDatabaseConnector.detect_database_type(database_url)
+                    if db_type == "sqlite":
+                        self._setup_sqlite_optimizations(engine)
 
-                return engine
+                    logger.info(
+                        "Database engine created",
+                        engine_name=engine_name,
+                        database_type=db_type,
+                        supports_pooling=db_type != "sqlite"
+                    )
 
-            except ValueError as e:
-                # Safety fallback — should rarely trigger now that GenericSQLAlchemyConnector exists
-                logger.warning(f"Connector fallback triggered: {e}")
-                database_url, engine_args = self._get_engine_args(database_url)
-                engine = create_engine(database_url, **engine_args)
-                self._engines[cache_key] = engine
-                self._setup_metrics_listeners(engine, engine_name)
+                    return engine
 
-                logger.info("Database engine created (fallback mode)", engine_name=engine_name)
-                return engine
+                except ValueError as e:
+                    # Safety fallback — should rarely trigger now that GenericSQLAlchemyConnector exists
+                    logger.warning(f"Connector fallback triggered: {e}")
+                    database_url, engine_args = self._get_engine_args(database_url)
+                    engine = create_engine(database_url, **engine_args)
+                    self._engines[cache_key] = engine
+                    self._setup_metrics_listeners(engine, engine_name)
+                    if database_url.startswith("sqlite"):
+                        self._setup_sqlite_optimizations(engine)
+
+                    logger.info("Database engine created (fallback mode)", engine_name=engine_name)
+                    return engine
 
     def _get_engine_args(self, database_url: str) -> tuple[str, Dict[str, Any]]:
         """Get the appropriate database_url and arguments for creating a SQLAlchemy engine."""
@@ -283,7 +321,7 @@ class ConnectionManager:
                         dbapi_conn.timeout = timeout_seconds
                 except Exception:
                     logger.debug("Query timeout configuration not supported on this MSSQL connection")
-            elif db_type not in ("sqlite", "cassandra"):
+            elif db_type not in ("sqlite", "cassandra", "duckdb"):
                 # Best-effort for unknown databases (Snowflake, CockroachDB, etc.)
                 # Many PostgreSQL-compatible DBs support statement_timeout
                 try:
@@ -329,8 +367,15 @@ class ConnectionManager:
         if not query or not query.strip():
             return True
 
+        # Strip SQL comments to avoid false-positives (e.g., SELECT /* UPDATE */ id FROM users)
+        try:
+            import sqlparse
+            cleaned_query = sqlparse.format(query, strip_comments=True)
+        except Exception:
+            cleaned_query = query
+
         # Strip string literals to avoid false positives (e.g., SELECT 'update')
-        stripped_query = re.sub(r"'(?:''|[^'])*'", "''", query).upper()
+        stripped_query = re.sub(r"'(?:''|[^'])*'", "''", cleaned_query).upper()
 
         mutating_keywords = {
             "INSERT", "UPDATE", "DELETE", "DROP",
@@ -477,88 +522,90 @@ class ConnectionManager:
         except Exception as e:
             raise ValueError(f"Invalid database URL for connection '{name}': {mask_database_url(resolved_url)}") from e
 
-        # If overwriting, dispose existing engine(s)
-        if name in self._connections:
-            to_dispose = [k for k in list(self._engines.keys()) if k.startswith(f"{name}:") or k == name]
-            for k in to_dispose:
-                try:
-                    self._engines[k].dispose()
-                except Exception:
-                    pass
-                del self._engines[k]
+        with self._lock:
+            # If overwriting, dispose existing engine(s)
+            if name in self._connections:
+                to_dispose = [k for k in list(self._engines.keys()) if k.startswith(f"{name}:") or k == name]
+                for k in to_dispose:
+                    try:
+                        self._engines[k].dispose()
+                    except Exception:
+                        pass
+                    del self._engines[k]
 
-        dialect = detect_dialect(resolved_url)
+            dialect = detect_dialect(resolved_url)
 
-        # Handle default flag
-        if is_default or not self._connections:
-            for c in self._connections.values():
-                c.is_default = False
-            is_default = True
-            self._default_connection_name = name
-        elif not self._default_connection_name:
-            self._default_connection_name = name
-            is_default = True
+            # Handle default flag
+            if is_default or not self._connections:
+                for c in self._connections.values():
+                    c.is_default = False
+                is_default = True
+                self._default_connection_name = name
+            elif not self._default_connection_name:
+                self._default_connection_name = name
+                is_default = True
 
-        conn = DatabaseConnection(
-            name=name,
-            db_url=resolved_url,
-            dialect=dialect,
-            is_default=is_default,
-            description=description,
-            raw_url=raw_url,
-        )
-        self._connections[name] = conn
+            conn = DatabaseConnection(
+                name=name,
+                db_url=resolved_url,
+                dialect=dialect,
+                is_default=is_default,
+                description=description,
+                raw_url=raw_url,
+            )
+            self._connections[name] = conn
 
-        if persist:
-            self.save_connections()
+            if persist:
+                self.save_connections()
 
-        logger.info(
-            "Registered named database connection",
-            connection_name=name,
-            dialect=dialect,
-            is_default=is_default,
-        )
-        return conn
+            logger.info(
+                "Registered named database connection",
+                connection_name=name,
+                dialect=dialect,
+                is_default=is_default,
+            )
+            return conn
 
     def get_named_connection(self, name: Optional[str] = None) -> DatabaseConnection:
         """Retrieve a registered named database connection."""
-        if name is None or name == "default":
-            if self._default_connection_name and self._default_connection_name in self._connections:
-                return self._connections[self._default_connection_name]
-            if "default" in self._connections:
-                return self._connections["default"]
+        with self._lock:
+            if name is None or name == "default":
+                if self._default_connection_name and self._default_connection_name in self._connections:
+                    return self._connections[self._default_connection_name]
+                if "default" in self._connections:
+                    return self._connections["default"]
 
-            # Fallback to single configured database_url if available
-            try:
-                from teshq.config.loader import get_database_url
-                configured_url = get_database_url()
-                if configured_url:
-                    resolved = expand_connection_url(configured_url)
-                    return DatabaseConnection(
-                        name="default",
-                        db_url=resolved,
-                        dialect=detect_dialect(resolved),
-                        is_default=True,
-                        description="Default configured database",
-                        raw_url=configured_url,
-                    )
-            except Exception:
-                pass
+                # Fallback to single configured database_url if available
+                try:
+                    from teshq.config.loader import get_database_url
+                    configured_url = get_database_url()
+                    if configured_url:
+                        resolved = expand_connection_url(configured_url)
+                        return DatabaseConnection(
+                            name="default",
+                            db_url=resolved,
+                            dialect=detect_dialect(resolved),
+                            is_default=True,
+                            description="Default configured database",
+                            raw_url=configured_url,
+                        )
+                except Exception:
+                    pass
 
-            if len(self._connections) == 1:
-                return next(iter(self._connections.values()))
+                if len(self._connections) == 1:
+                    return next(iter(self._connections.values()))
 
-            raise KeyError("No default database connection configured. Specify a connection name.")
+                raise KeyError("No default database connection configured. Specify a connection name.")
 
-        if name in self._connections:
-            return self._connections[name]
+            if name in self._connections:
+                return self._connections[name]
 
-        # Check if requested name is "default" and can be resolved
-        if name == "default":
-            return self.get_named_connection(None)
+            # Check if requested name is "default" and can be resolved
+            if name == "default":
+                return self.get_named_connection(None)
 
-        available = list(self._connections.keys())
-        raise KeyError(f"Database connection '{name}' not found. Available connections: {available}")
+            available = list(self._connections.keys())
+            raise KeyError(f"Database connection '{name}' not found. Available connections: {available}")
 
     def get_connection_metadata(self, name: Optional[str] = None) -> DatabaseConnection:
         """Alias for get_named_connection."""
@@ -566,62 +613,66 @@ class ConnectionManager:
 
     def list_connections(self, as_dict: bool = False) -> Any:
         """List all registered named connections with masked credentials."""
-        if as_dict:
-            return {name: conn.to_dict(mask_secret=True) for name, conn in self._connections.items()}
-        return [conn.to_dict(mask_secret=True) for conn in self._connections.values()]
+        with self._lock:
+            if as_dict:
+                return {name: conn.to_dict(mask_secret=True) for name, conn in self._connections.items()}
+            return [conn.to_dict(mask_secret=True) for conn in self._connections.values()]
 
     def remove_connection(self, name: str, persist: bool = False) -> bool:
         """Remove a named database connection and dispose its engine and connection pool."""
-        if name not in self._connections:
-            raise KeyError(f"Connection '{name}' not found.")
+        with self._lock:
+            if name not in self._connections:
+                raise KeyError(f"Connection '{name}' not found.")
 
-        conn = self._connections[name]
-        db_url = conn.db_url
+            conn = self._connections[name]
+            db_url = conn.db_url
 
-        # Dispose of engine(s) associated with this connection or URL
-        to_dispose = [
-            k for k in list(self._engines.keys())
-            if k.startswith(f"{name}:") or k == name or k == db_url
-        ]
-        for k in to_dispose:
-            try:
-                self._engines[k].dispose()
-                logger.info("Disposed engine for removed connection", engine_name=name)
-            except Exception as e:
-                logger.warning("Error disposing engine", error=str(e), engine_name=name)
-            self._engines.pop(k, None)
+            # Dispose of engine(s) associated with this connection or URL
+            to_dispose = [
+                k for k in list(self._engines.keys())
+                if k.startswith(f"{name}:") or k == name or k == db_url
+            ]
+            for k in to_dispose:
+                try:
+                    self._engines[k].dispose()
+                    logger.info("Disposed engine for removed connection", engine_name=name)
+                except Exception as e:
+                    logger.warning("Error disposing engine", error=str(e), engine_name=name)
+                self._engines.pop(k, None)
 
-        del self._connections[name]
+            del self._connections[name]
 
-        if self._default_connection_name == name:
-            self._default_connection_name = next(iter(self._connections.keys()), None)
-            if self._default_connection_name:
-                self._connections[self._default_connection_name].is_default = True
+            if self._default_connection_name == name:
+                self._default_connection_name = next(iter(self._connections.keys()), None)
+                if self._default_connection_name:
+                    self._connections[self._default_connection_name].is_default = True
 
-        if persist:
-            self.save_connections()
-        return True
+            if persist:
+                self.save_connections()
+            return True
 
     def clear_all(self) -> None:
         """Clear all connections and dispose of all active engines."""
-        for engine in list(self._engines.values()):
-            try:
-                engine.dispose()
-            except Exception:
-                pass
-        self._engines.clear()
-        self._connections.clear()
-        self._default_connection_name = None
+        with self._lock:
+            for engine in list(self._engines.values()):
+                try:
+                    engine.dispose()
+                except Exception:
+                    pass
+            self._engines.clear()
+            self._connections.clear()
+            self._default_connection_name = None
 
     def set_default_connection(self, name: str, persist: bool = False) -> None:
         """Set the default connection name."""
-        if name not in self._connections:
-            raise KeyError(f"Connection '{name}' not found.")
-        for conn in self._connections.values():
-            conn.is_default = (conn.name == name)
-        self._default_connection_name = name
-        if persist:
-            self.save_connections()
+        with self._lock:
+            if name not in self._connections:
+                raise KeyError(f"Connection '{name}' not found.")
+            for conn in self._connections.values():
+                conn.is_default = (conn.name == name)
+            self._default_connection_name = name
+            if persist:
+                self.save_connections()
 
     def save_connections(self, file_path: Optional[Path] = None) -> bool:
         """Save registered named connections to YAML configuration file."""
@@ -656,7 +707,14 @@ class ConnectionManager:
             if secrets_to_save:
                 save_secrets(secrets_to_save)
 
-            dest.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+            # Atomic write with 0o600 permissions to prevent file corruption or race conditions
+            temp_file = dest.with_name(f".{dest.name}.tmp.{os.getpid()}")
+            temp_file.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+            try:
+                os.chmod(temp_file, 0o600)
+            except Exception:
+                pass
+            os.replace(temp_file, dest)
             return True
         except Exception as e:
             logger.error("Failed to save connections to file", error=str(e), path=str(dest))
@@ -730,17 +788,21 @@ class ConnectionManager:
 
     def close_all_connections(self):
         """Close all database connections and engines."""
-        for cache_key, engine in self._engines.items():
-            safe_name = cache_key.split(":")[0] if ":" in cache_key else cache_key
-            try:
-                engine.dispose()
-                logger.info("Database engine disposed", engine_name=safe_name)
-            except Exception as e:
-                logger.error("Error disposing database engine", error=e, engine_name=safe_name)
-        self._engines.clear()
+        with self._lock:
+            for cache_key, engine in list(self._engines.items()):
+                safe_name = cache_key.split(":")[0] if ":" in cache_key else cache_key
+                try:
+                    engine.dispose()
+                    logger.info("Database engine disposed", engine_name=safe_name)
+                except Exception as e:
+                    logger.error("Error disposing database engine", error=e, engine_name=safe_name)
+            self._engines.clear()
+
+    dispose_all = close_all_connections
 
 
 connection_manager = ConnectionManager()
+atexit.register(connection_manager.close_all_connections)
 
 
 def get_production_config() -> ConnectionConfig:

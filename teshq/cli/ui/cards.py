@@ -25,7 +25,6 @@ from teshq.cli.ui.theme import (
 )
 
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SQL CARD — Clean Code View
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -196,8 +195,10 @@ def render_error_card(
     Structure: What happened → Why → How to fix (numbered steps)
     Professional and direct — no "empathetic" language.
     """
+    from teshq.core.connection import mask_database_url
+
     exc_type = type(exc).__name__
-    raw_msg = str(exc).strip() or "An unexpected issue occurred."
+    raw_msg = mask_database_url(str(exc).strip()) or "An unexpected issue occurred."
 
     # ── Contextual diagnosis based on error signature ─────────────────
     headline = f"Could not complete {context.lower()}"
@@ -270,7 +271,7 @@ def render_error_card(
 
     # ── Optional traceback ────────────────────────────────────────────
     if show_traceback:
-        tb = traceback.format_exc()
+        tb = mask_database_url(traceback.format_exc())
         if tb and "NoneType: None" not in tb:
             content.append(f"\n\n  Traceback:\n{tb}", style=f"dim {Colors.TEXT_MUTED}")
 

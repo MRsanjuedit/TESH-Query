@@ -8,13 +8,14 @@ security policy enforcement across N named database connections.
 
 from __future__ import annotations
 
+import concurrent.futures
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from teshq.core.connection import DatabaseConnection, connection_manager
+from teshq.core.connection import DatabaseConnection, connection_manager as default_connection_manager
 from teshq.core.query import execute_sql_query
 from teshq.core.sql_normalizer import normalize_sql
 from teshq.core.sql_validator import validate_sql
@@ -192,9 +193,15 @@ class CrossDatabaseOrchestrator:
 
     DEFAULT_ROW_LIMIT = 5000
     MAX_ROW_LIMIT = 20000
+    MAX_COMBINED_ROWS = 50000
 
-    def __init__(self, manager=None, max_rows_per_subquery: int = DEFAULT_ROW_LIMIT):
-        self.connection_manager = manager or connection_manager
+    def __init__(
+        self,
+        manager: Optional[Any] = None,
+        max_rows_per_subquery: int = DEFAULT_ROW_LIMIT,
+        connection_manager: Optional[Any] = None,
+    ):
+        self.connection_manager = manager or connection_manager or default_connection_manager
         self.default_row_limit = max_rows_per_subquery
 
     def plan_query(
@@ -339,7 +346,9 @@ class CrossDatabaseOrchestrator:
 
         failed_sources: List[str] = []
 
-        for sq in plan.subqueries:
+        def _execute_single_subquery(
+            sq: SubquerySpec,
+        ) -> Tuple[SubqueryExecutionResult, Optional[pd.DataFrame], Optional[str]]:
             sq_t0 = time.time()
             normalized_sql = normalize_sql(sq.sql).rstrip(";").strip()
 
@@ -367,9 +376,7 @@ class CrossDatabaseOrchestrator:
                     success=True,
                     alias=sq.alias,
                 )
-                subquery_results.append(sub_res)
-                df = pd.DataFrame(rows)
-                source_dfs[sq.database] = df
+                return sub_res, pd.DataFrame(rows), None
 
             except Exception as e:
                 sq_latency = int((time.time() - sq_t0) * 1000)
@@ -388,7 +395,19 @@ class CrossDatabaseOrchestrator:
                     error=str(e),
                     alias=sq.alias,
                 )
-                subquery_results.append(sub_res)
+                return sub_res, None, str(e)
+
+        if len(plan.subqueries) <= 1:
+            raw_results = [_execute_single_subquery(sq) for sq in plan.subqueries]
+        else:
+            max_workers = min(len(plan.subqueries), 8)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_execute_single_subquery, sq) for sq in plan.subqueries]
+                raw_results = [f.result() for f in futures]
+
+        for sq, (sub_res, df, err) in zip(plan.subqueries, raw_results):
+            subquery_results.append(sub_res)
+            if err is not None:
                 failed_sources.append(sq.database)
                 if not allow_partial_failures:
                     total_ms = int((time.time() - t0) * 1000)
@@ -401,8 +420,11 @@ class CrossDatabaseOrchestrator:
                         total_latency_ms=total_ms,
                         source_attribution={},
                         success=False,
-                        error=f"Subquery for database '{sq.database}' failed: {e}",
+                        error=f"Subquery for database '{sq.database}' failed: {err}",
                     )
+            else:
+                if df is not None:
+                    source_dfs[sq.database] = df
 
         if len(failed_sources) == len(plan.subqueries):
             total_ms = int((time.time() - t0) * 1000)
@@ -495,8 +517,11 @@ class CrossDatabaseOrchestrator:
                 matched_key = next((k for k in join_keys if k.lower() == str(col).lower()), None)
                 if matched_key:
                     new_columns[col] = matched_key
-                    clean[col] = clean[col].apply(
-                        lambda x: str(x).strip() if pd.notna(x) and x is not None else None
+                    clean[col] = (
+                        clean[col]
+                        .astype(str)
+                        .str.strip()
+                        .where(clean[col].notna(), None)
                     )
                 else:
                     new_columns[col] = f"{db_name}_{col}"
@@ -517,6 +542,16 @@ class CrossDatabaseOrchestrator:
                     merged_df = pd.merge(merged_df, df, on=common_keys, how=pd_how)
                 else:
                     merged_df = pd.concat([merged_df.reset_index(drop=True), df.reset_index(drop=True)], axis=1)
+
+                # Memory protection: prevent explosive cartesian joins from exhausting RAM
+                max_combined = getattr(self, "MAX_COMBINED_ROWS", 50000)
+                if len(merged_df) > max_combined:
+                    logger.warning(
+                        "Cross-database join result exceeded memory threshold; capped to prevent OOM",
+                        row_count=len(merged_df),
+                        max_allowed=max_combined,
+                    )
+                    merged_df = merged_df.iloc[:max_combined]
 
         final_df = merged_df if merged_df is not None else pd.DataFrame()
         final_df = final_df.replace({pd.NA: None, float("nan"): None})

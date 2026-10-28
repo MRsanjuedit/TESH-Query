@@ -179,3 +179,19 @@ class TestSqlValidatorAst:
         """Empty SQL is handled upstream; validator should pass silently."""
         validate_sql("")
         validate_sql("   ")
+
+    def test_copy_statement_blocked(self):
+        with pytest.raises(ValidationError, match="COPY"):
+            validate_sql("COPY users TO '/tmp/users.csv'")
+
+    def test_shutdown_statement_blocked(self):
+        with pytest.raises(ValidationError, match="SHUTDOWN"):
+            validate_sql("SHUTDOWN")
+
+    def test_attach_statement_blocked(self):
+        with pytest.raises(ValidationError, match="ATTACH"):
+            validate_sql("ATTACH DATABASE '/tmp/other.db' AS other")
+
+    def test_detach_statement_blocked(self):
+        with pytest.raises(ValidationError, match="DETACH"):
+            validate_sql("DETACH DATABASE other")
