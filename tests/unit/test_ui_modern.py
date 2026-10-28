@@ -3,23 +3,26 @@ Unit tests for the "Obsidian Instrument" UI components of TESH-Query.
 """
 
 from decimal import Decimal
+
 from rich.panel import Panel
 from rich.text import Text
 
-from teshq.cli.ui.theme import Colors, Icons, Typography, Spacing, latency_color
-from teshq.cli.ui.banner import render_hero_banner, render_hud
-from teshq.cli.ui.cards import render_sql_card, render_metrics_panel, render_error_card
-from teshq.cli.ui.tables import render_results_table
-from teshq.cli.ui.blocks import (
-    CommandBlock, StageTracker, render_telemetry_strip,
-    render_action_hints, QUERY_STAGES, DRY_RUN_STAGES,
-)
-
-from teshq.cli.ui.status_bar import render_status_bar
-from teshq.cli.ui.palette import render_help_sheet, render_command_list, fuzzy_match
-from teshq.cli.ui.ai_context import render_ai_explanation, render_table_suggestion
 from teshq.cli.chat import _get_env_summary
-
+from teshq.cli.ui.ai_context import render_ai_explanation, render_table_suggestion
+from teshq.cli.ui.banner import render_hero_banner, render_hud
+from teshq.cli.ui.blocks import (
+    DRY_RUN_STAGES,
+    QUERY_STAGES,
+    CommandBlock,
+    StageTracker,
+    render_action_hints,
+    render_telemetry_strip,
+)
+from teshq.cli.ui.cards import render_error_card, render_metrics_panel, render_sql_card
+from teshq.cli.ui.palette import fuzzy_match, render_command_list, render_help_sheet
+from teshq.cli.ui.status_bar import render_status_bar
+from teshq.cli.ui.tables import render_results_table
+from teshq.cli.ui.theme import Colors, Icons, Spacing, Typography, latency_color
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  DESIGN SYSTEM TESTS
@@ -116,7 +119,7 @@ class TestBanner:
 
     def test_env_summary(self):
         """Verify environment summary safely detects state without raising."""
-        db_status, db_type, llm_name, table_count = _get_env_summary()
+        db_status, db_type, llm_name, _table_count = _get_env_summary()
         assert isinstance(db_status, str)
         assert isinstance(db_type, str)
         assert isinstance(llm_name, str)

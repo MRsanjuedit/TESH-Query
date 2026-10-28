@@ -6,6 +6,7 @@ For advanced session tracking and flame graphs, use the Logfire dashboard.
 """
 
 import json
+
 import typer
 from rich.console import Group
 from rich.panel import Panel
@@ -13,10 +14,9 @@ from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 
-from teshq.cli.ui.theme import Colors, Icons, ROUNDED_BOX, console
+from teshq.cli.ui.theme import ROUNDED_BOX, Colors, Icons, console
 from teshq.telemetry.analytics import get_summary, reset_metrics
 from teshq.utils.ui import error, info, success
-
 
 app = typer.Typer(
     name="analytics",
