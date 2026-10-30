@@ -159,6 +159,12 @@ class TeshEngine:
 
         # Local backend parameters
         self._local_model_path = cfg.get("model_path")
+        if not self._local_model_path:
+            models_dir = Path.home() / ".teshq" / "models"
+            if models_dir.exists():
+                ggufs = sorted(models_dir.glob("*.gguf"))
+                if ggufs:
+                    self._local_model_path = str(ggufs[0])
         self._local_n_gpu_layers = cfg.get("n_gpu_layers", -1)
         self._local_n_ctx = cfg.get("n_ctx", 4096)
         self._local_n_threads = cfg.get("n_threads", 0)
