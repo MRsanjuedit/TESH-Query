@@ -82,6 +82,7 @@ teshq query [OPTIONS] [REQUEST]
 | `--save-csv <FILE>` | Save query results to a CSV file. |
 | `--save-excel <FILE>` | Save query results to an Excel spreadsheet (`.xlsx`). |
 | `--save-sqlite <FILE>` | Save query results to a SQLite database table. |
+| `--save-parquet <FILE>` | Save query results to an Apache Parquet file (`.parquet`). |
 | `--schema-preview` | Print the exact TF-IDF compressed schema sent to the LLM and exit. |
 | `--full-schema` | Bypass TF-IDF pruner and send the full database schema. |
 | `--local` | Force local offline GGUF model inference for this query. |
@@ -96,6 +97,9 @@ teshq query -c warehouse "Monthly recurring revenue by subscription tier"
 
 # Dry run with execution plan explanation
 teshq query "Which customers have overdue invoices?" --dry-run --explain
+
+# Save query results directly to Parquet
+teshq query "Top 50 sales reps by closed deal volume" --save-parquet sales_q3.parquet
 
 # Save query results directly to Excel
 teshq query "Top 50 sales reps by closed deal volume" --save-excel sales_q3.xlsx
@@ -113,16 +117,19 @@ Manage schemas, caching, and named database connections.
 ```bash
 # Named connection management
 teshq db connection add ecommerce "sqlite:///testing/databases/ecommerce.sqlite"
+teshq db connection add warehouse "databricks://token:***@host:443/default?http_path=..."
 teshq db connection list
 teshq db connection test ecommerce
 teshq db connection default ecommerce
 teshq db connection remove ecommerce
 
-# Schema operations
+# Schema operations & table preview
 teshq db introspect                 # Introspect live database schema
 teshq db introspect --save          # Save schema graph to ~/.teshq/schemas/
 teshq db introspect --samples       # Include statistical data samples
 teshq db explore                    # Launch interactive visual schema explorer
+teshq db preview <table_name>       # Preview top 5 sample records from any table
+teshq db preview <table_name> -n 10 # Preview top 10 sample records
 teshq db show-schema                # Print cached database schema
 teshq db clear-cache                # Reset local schema cache
 ```
@@ -131,16 +138,17 @@ teshq db clear-cache                # Reset local schema cache
 
 ## ⚙️ Configuration Commands (`teshq config`)
 
-Manage credentials, endpoints, and deployment settings.
+Manage credentials, endpoints, databases, and deployment settings.
 
 ```bash
 teshq config --wizard               # Interactive 30-second setup wizard
-teshq config --db                   # Configure database connection URL
+teshq config --db                   # Configure database connection interactively
+teshq config --db-url <URL>         # Set database URL directly (Databricks, Delta Lake, Postgres, etc.)
+teshq config --status               # View current configuration dashboard (secrets masked)
 teshq config --gemini               # Configure Google Gemini API key
 teshq config --azure                # Configure Azure OpenAI credentials
 teshq config --local                # Configure local GGUF model path
-teshq config --show                 # View current configuration (secrets masked)
-teshq config validate               # Run production readiness validation
+teshq config validate               # Run production readiness & connectivity validation
 ```
 
 ---

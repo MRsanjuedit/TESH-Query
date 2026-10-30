@@ -31,19 +31,22 @@ teshq health
 
 Install the exact database connector required for your environment:
 
-| Database | Extra Flag | Underlying Drivers |
+| Database / Engine | Extra Flag | Underlying Drivers |
 | :--- | :--- | :--- |
+| **Databricks SQL** | `pip install "teshq[databricks]"` | `databricks-sql-connector`, `databricks-sqlalchemy` |
+| **Delta Lake Tables** | `pip install "teshq[delta]"` | `deltalake`, `duckdb` |
+| **Trino / Starburst** | `pip install "teshq[trino]"` | `sqlalchemy-trino`, `trino` |
+| **Amazon Athena** | `pip install "teshq[athena]"` | `PyAthena` |
+| **Snowflake** | `pip install "teshq[snowflake]"` | `snowflake-sqlalchemy`, `snowflake-connector-python` |
+| **Google BigQuery** | `pip install "teshq[bigquery]"` | `sqlalchemy-bigquery`, `google-cloud-bigquery` |
+| **Amazon Redshift** | `pip install "teshq[redshift]"` | `sqlalchemy-redshift` |
+| **DuckDB / Lakehouse** | `pip install "teshq[duckdb]"` | `duckdb`, `duckdb-engine` |
+| **ClickHouse (OLAP)** | `pip install "teshq[clickhouse]"` | `clickhouse-connect` |
 | **PostgreSQL (Pure Python)** | `pip install "teshq[postgres]"` | `asyncpg` (Works on Python 3.10–3.14+) |
 | **PostgreSQL (Binary)** | `pip install "teshq[postgres-binary]"` | `psycopg2-binary` |
 | **MySQL / MariaDB** | `pip install "teshq[mysql]"` | `PyMySQL`, `mysql-connector-python` |
 | **Microsoft SQL Server** | `pip install "teshq[mssql]"` | `pymssql` |
 | **Oracle Database** | `pip install oracledb` | `oracledb` (Thin & Thick modes) |
-| **DuckDB (OLAP)** | `pip install duckdb-engine` | `duckdb`, `duckdb-engine` |
-| **ClickHouse (OLAP)** | `pip install clickhouse-connect` | `clickhouse-connect` |
-| **Snowflake** | `pip install snowflake-sqlalchemy` | `snowflake-connector-python` |
-| **Google BigQuery** | `pip install sqlalchemy-bigquery` | `google-cloud-bigquery` |
-| **Databricks Spark SQL** | `pip install databricks-sql-connector` | `databricks-sql-connector` |
-| **Amazon Redshift** | `pip install sqlalchemy-redshift` | `redshift-connector` |
 
 ### 2. High-Performance Modern Analytics
 

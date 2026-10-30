@@ -491,7 +491,7 @@ TESH-Query supports **all databases supported by SQLAlchemy** — automatically 
 | :--- | :--- | :--- | :--- |
 | **Cloud Warehouses** | **Snowflake** | `snowflake-sqlalchemy` | Native Snowflake dialect, case-sensitive identifiers |
 | | **Google BigQuery** | `sqlalchemy-bigquery` | Google Standard SQL, backtick quoting |
-| | **Databricks** | `databricks-sql-connector` | Spark SQL dialect, Delta Lake catalogs |
+| | **Databricks** | `databricks-sql-connector`, `databricks-sqlalchemy` | Spark SQL, Unity Catalog 3-level paths, PAT masking |
 | | **Amazon Redshift** | `sqlalchemy-redshift` | Redshift dialect, distkey/sortkey aware |
 | | **Amazon Athena** | `PyAthena` | Presto-compatible query syntax, partition pruning |
 | **Lakehouses & Lakebases** | **Delta Lake** | `duckdb` + `deltalake` | Direct Delta table & lakehouse querying (`delta://`), time-travel |
@@ -528,6 +528,10 @@ pip install "teshq[postgres]"       # Pure-Python asyncpg (Python 3.10–3.14+)
 pip install "teshq[postgres-binary]"# psycopg2-binary
 pip install "teshq[mysql]"          # PyMySQL & mysql-connector-python
 pip install "teshq[mssql]"          # pymssql (MS SQL Server)
+pip install "teshq[databricks]"     # Databricks SQL & Unity Catalog
+pip install "teshq[delta]"          # Delta Lake embedded vectorized engine
+pip install "teshq[trino]"          # Trino & Presto
+pip install "teshq[athena]"         # Amazon Athena
 
 # Offline local inference
 pip install "teshq[local]"          # llama-cpp-python

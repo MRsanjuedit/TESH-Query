@@ -1,6 +1,6 @@
 # TESH-Query — System Overview
 
-**TESH-Query (TESHQ)** is an autonomous natural-language-to-SQL compiler, execution harness, and AST security firewall. It translates plain English questions into dialect-accurate, injection-safe SQL across 11+ databases, validates queries via an Abstract Syntax Tree (AST) firewall, executes them with connection pooling, and recovers from syntax errors in an automated closed-loop self-healing cycle.
+**TESH-Query (TESHQ)** is an autonomous natural-language-to-SQL compiler, execution harness, and AST security firewall. It translates plain English questions into dialect-accurate, injection-safe SQL across 16+ databases, cloud data warehouses, and lakehouses (Databricks, Snowflake, BigQuery, Delta Lake, Trino, Athena, Redshift, DuckDB, ClickHouse, PostgreSQL, MySQL, MSSQL, Oracle, SQLite), validates queries via an Abstract Syntax Tree (AST) firewall, executes them with connection pooling, and recovers from syntax errors in an automated closed-loop self-healing cycle.
 
 ---
 

@@ -159,6 +159,32 @@ print(payload["chart_hints"])
 
 ---
 
+## 🌊 Cloud Warehouses & Lakehouses (Databricks, Delta Lake, Trino)
+
+TESH-Query connects seamlessly to modern analytical backends and supports exporting directly to Apache Parquet and JSONL:
+
+```python
+import teshq
+from teshq.utils.save import save_to_parquet, save_to_jsonl
+
+# 1. Connect to Databricks SQL Warehouse with Unity Catalog
+databricks_client = teshq.TeshQuery(
+    db_url="databricks://token:<PAT>@<host>:443/gold?http_path=<path>&catalog=ipl_analytics",
+    gemini_api_key="your-api-key"
+)
+df_databricks = databricks_client.query("Top 5 batters by total runs in gold.batting_summary")
+save_to_parquet(df_databricks, "top_batters.parquet")
+
+# 2. Query in-process Delta Lake without running Spark
+delta_client = teshq.TeshQuery(
+    db_url="delta:///path/to/orders_delta"
+)
+df_delta = delta_client.query("Count total orders grouped by status")
+save_to_jsonl(df_delta, "orders_summary.jsonl")
+```
+
+---
+
 ## 🗄️ Multi-Database Routing & Cross-DB Federation
 
 ```python
