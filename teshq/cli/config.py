@@ -414,7 +414,10 @@ def _prompt_for_database_url(indent: str = "") -> str:
 
     elif db_type == "databricks":
         host = prompt(f"{indent}Workspace Host (e.g., adb-123.azuredatabricks.net)")
-        http_path = prompt(f"{indent}HTTP Path")
+        host = host.strip().replace("https://", "").replace("http://", "").rstrip("/")
+        http_path = prompt(f"{indent}HTTP Path").strip()
+        if not http_path.startswith("/"):
+            http_path = "/" + http_path
         token = getpass(f"{indent}Personal Access Token: ")
         catalog = prompt(f"{indent}Catalog (optional)", default="hive_metastore")
         schema = prompt(f"{indent}Schema (optional)", default="default")
