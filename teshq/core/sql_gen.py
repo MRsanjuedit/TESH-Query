@@ -125,12 +125,17 @@ class SQLGenerator:
         start = time.time()
         logger.info("Starting SQL generation", query_length=len(nl_query))
 
+        plan_tables = plan.tables if plan and hasattr(plan, "tables") and plan.tables else []
+        plan_filters = plan.filters if plan and hasattr(plan, "filters") and plan.filters else []
+        plan_aggs = plan.aggregations if plan and hasattr(plan, "aggregations") and plan.aggregations else []
+        plan_joins = plan.joins_needed if plan and hasattr(plan, "joins_needed") and plan.joins_needed else []
+
         messages = self._prompt.format_messages(
             schema=schema,
-            tables=", ".join(plan.tables),
-            filters="; ".join(plan.filters) if plan.filters else "none",
-            aggregations="; ".join(plan.aggregations) if plan.aggregations else "none",
-            joins="; ".join(plan.joins_needed) if plan.joins_needed else "none",
+            tables=", ".join(plan_tables) if plan_tables else "all",
+            filters="; ".join(plan_filters) if plan_filters else "none",
+            aggregations="; ".join(plan_aggs) if plan_aggs else "none",
+            joins="; ".join(plan_joins) if plan_joins else "none",
             nl_query=nl_query,
         )
         # If a previous execution error is provided, inject it as a correction hint

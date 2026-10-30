@@ -10,6 +10,7 @@ import atexit
 import hashlib
 import json
 import os
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -565,6 +566,12 @@ class TeshEngine:
             )
 
         except Exception as e:
+            if sql_text:
+                try:
+                    setattr(e, "sql", sql_text)
+                    setattr(e, "parameters", parameters)
+                except Exception:
+                    pass
             error = str(e)
             error_type = type(e).__name__
             success = False

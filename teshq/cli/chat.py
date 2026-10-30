@@ -35,21 +35,40 @@ from teshq.cli.ui.theme import Colors, Icons, console
 app = typer.Typer(help="Interactive multi-turn SQL chat session.")
 
 
-def _get_env_summary(connection: Optional[str] = None) -> tuple[str, str, str, Optional[int]]:
+def _get_env_summary(
+    connection: Optional[str] = None,
+    provider_override: Optional[str] = None,
+) -> tuple[str, str, str, Optional[int]]:
     """Gather quick environment status for the HUD without raising."""
     db_type = "Database"
     db_status = "Not Connected"
-    llm_name = "Gemini 1.5"
+    llm_name = "Gemini 2.0"
     table_count = None
 
     try:
         settings = get_settings()
-        if settings.llm_provider.lower() == "azure":
+        prov = (provider_override or settings.llm_provider or "google").lower()
+        if prov == "azure":
             llm_name = "Azure OpenAI"
-        elif settings.llm_provider.lower() == "local":
-            llm_name = "Local GGUF"
+        elif prov == "local":
+            from pathlib import Path
+            models_dir = Path.home() / ".teshq" / "models"
+            m_label = "Local GGUF"
+            if models_dir.exists():
+                ggufs = sorted(models_dir.glob("*.gguf"))
+                if ggufs:
+                    stem = ggufs[0].stem
+                    if "qwen2.5-coder-1.5b" in stem:
+                        m_label = "Qwen2.5-Coder 1.5B"
+                    elif "qwen2.5-coder-3b" in stem:
+                        m_label = "Qwen2.5-Coder 3B"
+                    elif "qwen2.5-coder-7b" in stem:
+                        m_label = "Qwen2.5-Coder 7B"
+                    else:
+                        m_label = stem[:20]
+            llm_name = f"Local ({m_label})"
         else:
-            llm_name = "Gemini 1.5 Pro"
+            llm_name = settings.gemini_model or "Gemini 2.0 Flash"
 
         db_url = None
         if connection:
@@ -67,29 +86,35 @@ def _get_env_summary(connection: Optional[str] = None) -> tuple[str, str, str, O
                     pass
 
         if db_url:
-            if "postgres" in db_url:
-                db_type = "PostgreSQL"
-            elif "sqlite" in db_url:
-                db_type = "SQLite"
-            elif "mysql" in db_url:
-                db_type = "MySQL"
-            elif "oracle" in db_url:
-                db_type = "Oracle"
-            else:
-                db_type = "SQL DB"
+            from teshq.core.dialect import detect_dialect, SQLDialect
+            dialect = detect_dialect(db_url)
+            db_type = dialect.value if dialect != SQLDialect.GENERIC else "SQL DB"
             db_status = "Connected"
     except Exception:
         pass
 
     # Check schema cache
     try:
-        from teshq.config.paths import get_schema_path
+        from teshq.config.paths import get_schema_path, SCHEMA_DIR
         schema_path = get_schema_path("schema.txt")
         if schema_path.exists():
             content = schema_path.read_text(encoding="utf-8", errors="ignore")
             tables = [line for line in content.splitlines() if line.startswith("TABLE ") or line.startswith("Table ")]
             if tables:
                 table_count = len(tables)
+        if table_count is None and SCHEMA_DIR.exists():
+            import json
+            for candidate in sorted(SCHEMA_DIR.glob("schema_cache_*.json"), key=os.path.getmtime, reverse=True):
+                try:
+                    with open(candidate, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, dict):
+                        tables_dict = data.get("tables", {})
+                        if tables_dict:
+                            table_count = len(tables_dict)
+                            break
+                except Exception:
+                    continue
     except Exception:
         pass
 
@@ -97,20 +122,28 @@ def _get_env_summary(connection: Optional[str] = None) -> tuple[str, str, str, O
 
 
 def _extract_db_name(db_url: Optional[str]) -> str:
-    """Extract a human-readable database name from the connection URL."""
+    """Extract a clean, human-readable database name from connection URL."""
     if not db_url:
         return ""
     try:
-        if "sqlite" in db_url.lower():
-            # Extract filename from sqlite path
-            parts = db_url.split("/")
-            name = parts[-1] if parts else ""
-            # Remove extension
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(db_url)
+        qs = parse_qs(parsed.query)
+        if "catalog" in qs and "schema" in qs:
+            return f"{qs['catalog'][0]}.{qs['schema'][0]}"
+        elif "schema" in qs:
+            return qs["schema"][0]
+        elif "catalog" in qs:
+            return qs["catalog"][0]
+        elif "sqlite" in db_url.lower():
+            name = parsed.path.strip("/").split("/")[-1] if parsed.path else ""
             if "." in name:
                 name = name.rsplit(".", 1)[0]
-            return name
-        elif "@" in db_url and "/" in db_url:
-            return db_url.split("/")[-1]
+            return name or "sqlite"
+        elif parsed.path and parsed.path.strip("/"):
+            return parsed.path.strip("/").split("/")[-1]
+        elif parsed.hostname:
+            return parsed.hostname
     except Exception:
         pass
     return ""
@@ -118,26 +151,31 @@ def _extract_db_name(db_url: Optional[str]) -> str:
 
 def _render_schema_tree(engine: TeshEngine) -> Tree:
     """Build a visual Rich Tree of the database schema."""
-    db_name = "Database Schema"
     db_url = getattr(engine, '_db_url', '') or ''
     dialect = getattr(engine, '_dialect', 'SQL') or 'SQL'
-    if db_url:
-        db_name = db_url.split("@")[-1].split("/")[-1] if "/" in db_url else "Database"
+    db_name = _extract_db_name(db_url) or "Database Schema"
 
     root = Tree(
         f"[bold {Colors.PRIMARY}]{Icons.database()} {db_name}"
-        f"[/bold {Colors.PRIMARY}] [{Colors.TEXT_MUTED}]({dialect.upper()})[/{Colors.TEXT_MUTED}]"
+        f"[/bold {Colors.PRIMARY}] [{Colors.TEXT_MUTED}]({str(dialect).upper()})[/{Colors.TEXT_MUTED}]"
     )
 
     try:
-        from teshq.core.schema_graph import SchemaGraph
-        graph = SchemaGraph.from_schema_file()
+        graph = None
+        if hasattr(engine, "_get_schema_graph"):
+            try:
+                graph = engine._get_schema_graph()
+            except Exception:
+                pass
+        if graph is None or not graph.get_all_tables():
+            from teshq.core.schema_graph import SchemaGraph
+            graph = SchemaGraph.from_schema_file()
         all_tables = graph.get_all_tables()
 
         if not all_tables:
             root.add(
-                f"[italic {Colors.TEXT_MUTED}]No cached schema. "
-                f"Run 'teshq db introspect' first.[/italic {Colors.TEXT_MUTED}]"
+                f"[italic {Colors.TEXT_MUTED}]No cached schema found. "
+                f"Introspecting live database schema...[/italic {Colors.TEXT_MUTED}]"
             )
             return root
 
@@ -301,35 +339,38 @@ def interactive_chat(
     clear_terminal_screen()
     print_hero_banner()
 
-    db_status, db_type, llm_name, table_count = _get_env_summary(connection=connection)
-    print_hud(db_status=db_status, db_type=db_type, llm_model=llm_name, schema_tables_count=table_count)
-
-    # Extract db name for status bar
-    db_name = ""
-    try:
-        if connection:
-            from teshq.core.connection import connection_manager
-            conn_obj = connection_manager.get_named_connection(connection)
-            db_name = conn_obj.name
-        else:
-            db_url = get_db_url()
-            if not db_url:
-                from teshq.core.connection import connection_manager
-                conn_obj = connection_manager.get_named_connection(None)
-                db_url = conn_obj.db_url
-            db_name = _extract_db_name(db_url)
-    except Exception:
-        pass
-
-    console.print()
-    print_suggested_prompts()
-    console.print()
-
     provider_override = None
     if local:
         provider_override = "local"
     elif cloud:
         provider_override = "google"
+
+    target_db_url = None
+    db_name = ""
+    try:
+        if connection:
+            from teshq.core.connection import connection_manager
+            conn_obj = connection_manager.get_named_connection(connection)
+            target_db_url = conn_obj.db_url
+            db_name = conn_obj.name
+        else:
+            target_db_url = get_db_url()
+            if not target_db_url:
+                from teshq.core.connection import connection_manager
+                conn_obj = connection_manager.get_named_connection(None)
+                target_db_url = conn_obj.db_url
+            db_name = _extract_db_name(target_db_url)
+    except Exception:
+        pass
+
+    db_status, db_type, llm_name, table_count = _get_env_summary(
+        connection=connection, provider_override=provider_override
+    )
+    print_hud(db_status=db_status, db_type=db_type, llm_model=llm_name, schema_tables_count=table_count)
+
+    console.print()
+    print_suggested_prompts()
+    console.print()
 
     from teshq.api import TeshQuery
     from teshq.session import TeshChatSession
@@ -337,10 +378,6 @@ def interactive_chat(
     # Initialize Session once for speed
     chat_session: Optional[TeshChatSession] = None
     try:
-        target_db_url = None
-        if connection:
-            from teshq.core.connection import connection_manager
-            target_db_url = connection_manager.get_named_connection(connection).db_url
         client = TeshQuery(db_url=target_db_url, provider=provider_override)
         chat_session = client.create_session()
     except Exception as e:
@@ -469,7 +506,7 @@ def interactive_chat(
             elif cmd in ("/tables", "/schema"):
                 if not chat_session:
                     try:
-                        client = TeshQuery(provider=provider_override)
+                        client = TeshQuery(db_url=target_db_url, provider=provider_override)
                         chat_session = client.create_session()
                     except Exception as e:
                         print_error_card(e, context="Schema Inspection")
@@ -505,8 +542,12 @@ def interactive_chat(
                 custom_name = parts[2] if len(parts) > 2 else None
 
                 # Map format aliases to extensions
-                ext_map = {"excel": "xlsx", "xlsx": "xlsx", "xls": "xlsx",
-                           "csv": "csv", "sqlite": "db", "db": "db"}
+                ext_map = {
+                    "excel": "xlsx", "xlsx": "xlsx", "xls": "xlsx",
+                    "csv": "csv", "sqlite": "db", "db": "db",
+                    "parquet": "parquet", "pq": "parquet",
+                    "jsonl": "jsonl", "json": "jsonl",
+                }
                 ext = ext_map.get(fmt, "csv")
 
                 try:
@@ -529,6 +570,18 @@ def interactive_chat(
                             target_path += ".db"
                             display_path += ".db"
                         save_to_sqlite(df, target_path, table_name="results")
+                    elif fmt in ("parquet", "pq"):
+                        from teshq.utils.save import save_to_parquet
+                        if not target_path.endswith(".parquet"):
+                            target_path += ".parquet"
+                            display_path += ".parquet"
+                        save_to_parquet(df, target_path)
+                    elif fmt in ("jsonl", "json"):
+                        from teshq.utils.save import save_to_jsonl
+                        if not target_path.endswith(".jsonl"):
+                            target_path += ".jsonl"
+                            display_path += ".jsonl"
+                        save_to_jsonl(df, target_path)
                     else:
                         if not target_path.endswith(".csv"):
                             target_path += ".csv"
@@ -549,13 +602,15 @@ def interactive_chat(
                 if len(parts) > 1:
                     new_provider = parts[1].lower()
                     try:
-                        client = TeshQuery(provider=new_provider)
+                        provider_override = new_provider
+                        client = TeshQuery(db_url=target_db_url, provider=provider_override)
                         chat_session = client.create_session()
-                        llm_name = new_provider.title()
+                        _, _, llm_name, _ = _get_env_summary(
+                            connection=connection, provider_override=provider_override
+                        )
                         console.print(
                             f"  [{Colors.SUCCESS}]{Icons.check()}[/{Colors.SUCCESS}] "
-                            f"Switched to [{Colors.PRIMARY}]{new_provider}"
-                            f"[/{Colors.PRIMARY}]\n"
+                            f"Switched to [bold {Colors.PRIMARY}]{llm_name}[/bold {Colors.PRIMARY}]\n"
                         )
                     except Exception as e:
                         print_error_card(e, context="Switch Provider")
@@ -713,10 +768,6 @@ def interactive_chat(
             last_nl_query = user_input
             if not chat_session:
                 from teshq.api import TeshQuery
-                target_db_url = None
-                if connection:
-                    from teshq.core.connection import connection_manager
-                    target_db_url = connection_manager.get_named_connection(connection).db_url
                 client = TeshQuery(db_url=target_db_url, provider=provider_override)
                 chat_session = client.create_session()
 
@@ -781,10 +832,20 @@ def interactive_chat(
         except Exception as e:
             # Error block
             last_error = str(e)
-            last_sql = None
+            failed_sql = getattr(e, "sql", None)
+            failed_params = getattr(e, "parameters", {})
+            if failed_sql:
+                last_sql = failed_sql
+                last_parameters = failed_params
+            else:
+                last_sql = None
+                last_parameters = None
             last_result = None
+
             console.print()
             block = CommandBlock(user_input)
+            if last_sql:
+                block.set_sql(last_sql, dialect=last_dialect, parameters=last_parameters)
             block.set_error(str(e))
             block.print()
             console.print()

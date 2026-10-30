@@ -160,10 +160,13 @@ class TeshChatSession:
 
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
+            failed_sql = getattr(exc, "sql", "") or ""
+            failed_params = getattr(exc, "parameters", {}) or {}
             turn = ChatTurn(
                 turn_id=len(self.history) + 1,
                 prompt=prompt,
-                sql="",
+                sql=failed_sql,
+                parameters=failed_params,
                 duration_ms=duration_ms,
                 success=False,
                 error=str(exc),

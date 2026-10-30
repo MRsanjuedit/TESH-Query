@@ -151,7 +151,8 @@ class TeshQuery:
         self.auto_save_config = auto_save_config
 
         # Validate required config
-        if not self.db_url and self._custom_engine is None and not (self.azure_api_key or self.gemini_api_key):
+        has_auth = bool(self.azure_api_key or self.gemini_api_key or self._provider == "local")
+        if not self.db_url and self._custom_engine is None and not has_auth:
             raise ValueError(
                 "Database URL is required (or provide engine=). "
                 "Provide it via db_url=, engine=, or configure with: teshq config --db"
@@ -170,6 +171,8 @@ class TeshQuery:
                     "Azure OpenAI requires: " + ", ".join(missing) + ". "
                     "Configure with: teshq config --azure"
                 )
+        elif self._provider == "local":
+            pass
         else:
             if not self.gemini_api_key:
                 raise ValueError(
@@ -196,6 +199,8 @@ class TeshQuery:
                 "AZURE_OPENAI_DEPLOYMENT": self.azure_deployment,
                 "AZURE_OPENAI_API_VERSION": self.azure_api_version,
             })
+        elif self._provider == "local":
+            pass
         else:
             config_data["GEMINI_API_KEY"] = self.gemini_api_key
             config_data["GEMINI_MODEL"] = self.gemini_model
@@ -291,6 +296,12 @@ class TeshQuery:
                     azure_endpoint=self.azure_endpoint,
                     azure_deployment=self.azure_deployment,
                     azure_api_version=self.azure_api_version,
+                    **common_kwargs,
+                )
+            elif self._provider == "local":
+                self._engine = TeshEngine(
+                    db_url=effective_url,
+                    provider="local",
                     **common_kwargs,
                 )
             else:
