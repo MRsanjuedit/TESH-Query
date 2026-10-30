@@ -19,7 +19,7 @@ _SENSITIVE_COLUMN_PATTERN = re.compile(
 def _split_qualified(name: str) -> Tuple[Optional[str], str]:
     """Split 'schema.table' → (schema, table) or (None, table)."""
     if "." in name:
-        parts = name.split(".", 1)
+        parts = name.rsplit(".", 1)
         return parts[0], parts[1]
     return None, name
 
@@ -147,7 +147,12 @@ def introspect_db(
             combined_names = raw_tables + [v for v in raw_views if v not in raw_tables]
             for t in combined_names:
                 # Use schema-qualified name for non-default schemas
-                if s and s != default_schema:
+                is_default_schema = (
+                    s is None
+                    or s == default_schema
+                    or (default_schema and (s.endswith(f".{default_schema}") or s == f"memory.{default_schema}"))
+                )
+                if not is_default_schema and s:
                     qualified = f"{s}.{t}"
                 else:
                     qualified = t
@@ -180,9 +185,14 @@ def introspect_db(
         # Get columns
         try:
             columns = inspector.get_columns(tbl_raw, schema=tbl_schema)
+            if not columns and tbl_schema:
+                columns = inspector.get_columns(tbl_raw)
         except Exception as e:
             logger.warning(f"Could not get columns for table {table_name}: {e}")
-            columns = []
+            try:
+                columns = inspector.get_columns(tbl_raw)
+            except Exception:
+                columns = []
 
         # Get primary keys
         try:

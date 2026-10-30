@@ -176,7 +176,6 @@ class SQLGenerator:
         logger.error("SQL generation failed", error=last_exc, sql_latency_ms=elapsed_ms)
         raise last_exc  # type: ignore[misc]
 
-
     def _invoke_azure(self, messages, callbacks: Optional[list] = None) -> SQLQuery:
         """
         Invoke the LLM without structured output for Azure OpenAI compatibility.

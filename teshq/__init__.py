@@ -67,12 +67,12 @@ _warnings.filterwarnings("ignore", message=r".*pydantic\.v1.*", category=UserWar
 del _warnings
 
 # Import main API classes and functions
-from .api import TeshQuery, health_check, introspect, query
-from .events import CancellationToken, EventType, QueryCancelledError, QueryEvent
-from .session import TeshChatSession, ChatTurn
+from .api import TeshQuery, health_check, introspect, query  # noqa: E402
+from .events import CancellationToken, EventType, QueryCancelledError, QueryEvent  # noqa: E402
+from .session import TeshChatSession, ChatTurn  # noqa: E402
 
 # Import version information
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, version  # noqa: E402
 
 try:
     __version__ = version("teshq")

@@ -61,6 +61,12 @@ class ConfigValidator:
                 detected_type = "mssql"
             elif detected_type == "mariadb":
                 detected_type = "mysql"
+            elif detected_type in ("delta", "deltalake"):
+                detected_type = "delta"
+            elif detected_type in ("lakehouse", "parquet"):
+                detected_type = "lakehouse"
+            elif detected_type in ("awsathena", "athena"):
+                detected_type = "athena"
 
             # Check supported database info (always True via Generic connector)
             db_info = UnifiedDatabaseConnector.get_database_info(db_url)
@@ -68,36 +74,54 @@ class ConfigValidator:
                 supported_types = ", ".join(UnifiedDatabaseConnector.get_supported_databases())
                 return False, f"Unsupported database type: {detected_type}. Supported types: {supported_types}"
 
-            # Special validation for embedded / file-based databases: SQLite & DuckDB
-            if detected_type in ("sqlite", "duckdb"):
+            # Special validation for embedded / file-based databases: SQLite, DuckDB, Delta Lake, Lakehouses
+            if detected_type in ("sqlite", "duckdb", "delta", "lakehouse"):
                 path_str = getattr(parsed_url, "database", None) or urlparse(db_url).path or ""
                 if ":memory:" in db_url or path_str == ":memory:":
                     return True, f"Valid {detected_type} database URL format"
+                # Check for cloud lakehouse paths
+                if any(x in db_url for x in ("s3://", "gcs://", "http://", "https://", "abfss://")):
+                    return True, f"Valid {detected_type} cloud URL format"
+
                 if path_str:
                     import os
-                    if path_str.startswith("//"):
-                        db_path = Path(path_str[1:])
+                    if (Path.cwd() / path_str).exists():
+                        db_path = Path.cwd() / path_str
+                    elif Path(path_str).exists():
+                        db_path = Path(path_str)
+                    elif Path("/" + path_str).exists():
+                        db_path = Path("/" + path_str)
                     elif path_str.startswith("/"):
-                        db_path = Path.cwd() / path_str[1:]
+                        db_path = Path(path_str)
                     else:
                         db_path = Path.cwd() / path_str
+
+                    if db_path.exists():
+                        return True, f"Valid {detected_type} database URL format"
                     parent = db_path.parent
                     if not parent.exists():
                         return False, f"Directory for {detected_type.capitalize()} database does not exist: {parent}"
                     if not os.access(parent, os.W_OK):
                         return False, f"Directory for {detected_type.capitalize()} database is not writable: {parent}"
                 else:
-                    return False, f"{detected_type.capitalize()} URL must include a path to the database file"
+                    return (
+                        False,
+                        f"{detected_type.capitalize()} URL must include a path to the database file or lakehouse directory"
+                    )
 
             # For network / client-server databases
             else:
                 host = getattr(parsed_url, "host", None)
                 parsed_fb = urlparse(db_url)
                 if not host and not parsed_fb.hostname and not parsed_fb.netloc:
-                    return False, f"{detected_type} database URL must include hostname"
+                    if detected_type not in ("bigquery", "athena"):
+                        return False, f"{detected_type} database URL must include hostname"
                 database = getattr(parsed_url, "database", None) or parsed_fb.path
                 if not database or database == "/":
-                    if detected_type not in ("snowflake", "bigquery", "clickhouse", "teradata", "duckdb"):
+                    if detected_type not in (
+                        "snowflake", "bigquery", "clickhouse", "teradata",
+                        "duckdb", "databricks", "trino", "presto", "athena"
+                    ):
                         return False, f"{detected_type} database URL must include database name"
 
             return True, f"Valid {backend} database URL format"
@@ -263,7 +287,7 @@ class CLIValidator:
         if not format_type:
             return True, "No format specified (default will be used)"
 
-        valid_formats = {"csv", "excel", "sqlite", "json", "table"}
+        valid_formats = {"csv", "excel", "sqlite", "json", "jsonl", "parquet", "table"}
 
         if format_type.lower() not in valid_formats:
             return False, f"Invalid output format. Supported: {', '.join(valid_formats)}"
@@ -285,6 +309,8 @@ class CLIValidator:
             "excel": [".xlsx", ".xls"],
             "sqlite": [".db", ".sqlite", ".sqlite3"],
             "json": [".json"],
+            "jsonl": [".jsonl"],
+            "parquet": [".parquet", ".pq"],
         }
 
         if format_type in expected_extensions:

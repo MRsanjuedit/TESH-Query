@@ -12,6 +12,7 @@ import platform
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+
 @dataclass
 class HardwareProfile:
     cpu_cores: int                 # Physical/logical cores
@@ -24,11 +25,12 @@ class HardwareProfile:
     recommended_n_gpu_layers: int  # Offload layers suggestion (e.g. 0 to 99)
     recommended_n_ctx: int         # Recommended context length (e.g. 2048, 4096)
 
+
 def _get_ram_info() -> Tuple[float, float]:
     """Get total and available RAM in GB with cross-platform fallbacks."""
     total_gb = 8.0  # Safe defaults
     available_gb = 4.0
-    
+
     # Try importing psutil if installed
     try:
         import psutil
@@ -41,7 +43,7 @@ def _get_ram_info() -> Tuple[float, float]:
         if sys.platform == "win32":
             # Use systeminfo or wmic on Windows
             out = subprocess.check_output(
-                ["wmic", "ComputerSystem", "get", "TotalPhysicalMemory"], 
+                ["wmic", "ComputerSystem", "get", "TotalPhysicalMemory"],
                 text=True, stderr=subprocess.DEVNULL
             )
             for line in out.splitlines():
@@ -69,8 +71,9 @@ def _get_ram_info() -> Tuple[float, float]:
                         available_gb = avail_kb / (1024 * 1024)
     except Exception:
         pass
-        
+
     return total_gb, available_gb
+
 
 def _detect_gpu() -> Tuple[Optional[str], int, str]:
     """
@@ -80,7 +83,7 @@ def _detect_gpu() -> Tuple[Optional[str], int, str]:
     gpu_name = None
     gpu_vram_mb = 0
     gpu_backend = "cpu"
-    
+
     # 1. Check macOS (Metal)
     if sys.platform == "darwin":
         # Check if Apple Silicon (M1/M2/M3/M4)
@@ -108,9 +111,10 @@ def _detect_gpu() -> Tuple[Optional[str], int, str]:
             return gpu_name, gpu_vram_mb, gpu_backend
     except Exception:
         pass
-        
+
     # Future fallbacks: ROCm, Vulkan could be queried if needed.
     return gpu_name, gpu_vram_mb, gpu_backend
+
 
 def recommend_quant(ram_gb: float, vram_mb: int) -> str:
     """Recommend quantization level based on memory constraints."""
@@ -121,17 +125,18 @@ def recommend_quant(ram_gb: float, vram_mb: int) -> str:
     else:
         return "Q4_K_M"
 
+
 def recommend_gpu_layers(gpu_backend: str, vram_mb: int, model_size_gb: float = 3.0) -> int:
     """Recommend number of layers to offload to GPU."""
     if gpu_backend == "cpu" or vram_mb == 0:
         return 0
-    
+
     # For sub-4B models (e.g. Qwen 3B/4B), there are usually ~30-40 layers.
     # Total model size in VRAM is ~2.5 - 3.5 GB.
     # If we have Apple Silicon (Metal) or CUDA with at least 4GB VRAM, offload everything.
     if gpu_backend == "metal":
         return 99  # Let Metal driver handle unified memory allocation
-        
+
     # For CUDA, check if we have enough headroom
     required_mb = (model_size_gb * 1024) + 1024  # Model size + context/KV cache overhead
     if vram_mb >= required_mb:
@@ -140,6 +145,7 @@ def recommend_gpu_layers(gpu_backend: str, vram_mb: int, model_size_gb: float = 
         # Partial offloading
         return 16
     return 0
+
 
 def detect_hardware() -> HardwareProfile:
     """Analyze host hardware and recommend parameters for local inference."""
@@ -150,18 +156,18 @@ def detect_hardware() -> HardwareProfile:
         cpu_cores = psutil.cpu_count(logical=False) or cpu_cores
     except Exception:
         pass
-        
+
     ram_total, ram_avail = _get_ram_info()
     gpu_name, gpu_vram, gpu_backend = _detect_gpu()
-    
+
     # Determine recommendations
     recommended_quant = recommend_quant(ram_total, gpu_vram)
     recommended_layers = recommend_gpu_layers(gpu_backend, gpu_vram)
-    
+
     # Context window recommendations
     # If low RAM, default to 2048 to save memory. Otherwise 4096.
     recommended_ctx = 2048 if ram_total < 10 else 4096
-    
+
     return HardwareProfile(
         cpu_cores=cpu_cores,
         ram_total_gb=round(ram_total, 2),

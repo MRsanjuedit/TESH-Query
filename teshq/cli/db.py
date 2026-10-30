@@ -356,7 +356,7 @@ def preview_table(
                 except Exception:
                     pass
             if not target_url:
-                target_url = engine.db_url or get_db_url()
+                target_url = getattr(engine, "db_url", None) or getattr(engine, "_db_url", None) or get_db_url()
 
             rows = connection_manager.execute_query_with_timeout(target_url, query)
 

@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+
 @pytest.fixture(autouse=True)
 def mock_llama_cpp_module():
     """Mock llama_cpp module in sys.modules to prevent ModuleNotFoundError during patching."""
@@ -24,6 +25,7 @@ def mock_llama_cpp_module():
         else:
             sys.modules['llama_cpp'] = original
 
+
 from teshq.core.hardware import detect_hardware, recommend_quant, recommend_gpu_layers
 from teshq.core.inference import InferenceRuntime, InferenceConfig
 from teshq.core.grammar import get_sql_grammar
@@ -32,7 +34,7 @@ from teshq.core.model_manager import ModelManager, REGISTRY
 
 class TestHardwareDetection(unittest.TestCase):
     """Test CPU, RAM, and GPU detection heuristics."""
-    
+
     def test_recommend_quant(self):
         # High-end systems get Q8
         self.assertEqual(recommend_quant(ram_gb=32, vram_mb=8000), "Q8_0")
@@ -60,34 +62,34 @@ class TestHardwareDetection(unittest.TestCase):
 
 class TestInferenceRuntime(unittest.TestCase):
     """Test direct in-process llama.cpp runner (mocked Llama C-bindings)."""
-    
+
     @patch('llama_cpp.Llama')
     def test_runtime_lifecycle(self, mock_llama_cls):
         # Setup mock instance
         mock_llama = MagicMock()
         mock_llama_cls.return_value = mock_llama
-        
+
         # Mock completion response
         mock_llama.create_completion.return_value = {
             "choices": [{"text": "SELECT * FROM users;"}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
         }
-        
+
         runtime = InferenceRuntime()
         config = InferenceConfig(model_path="dummy_path.gguf")
-        
+
         # Test load
         with patch('os.path.exists', return_value=True):
             runtime.load(config)
             self.assertTrue(runtime.is_loaded)
             self.assertEqual(runtime.config, config)
-            
+
             # Test generate (without system prompt -> raw completion)
             res = runtime.generate("Show all users")
             self.assertEqual(res.text, "SELECT * FROM users;")
             self.assertEqual(res.prompt_tokens, 10)
             self.assertEqual(res.completion_tokens, 5)
-            
+
             # Test unload
             runtime.unload()
             self.assertFalse(runtime.is_loaded)
@@ -95,12 +97,12 @@ class TestInferenceRuntime(unittest.TestCase):
 
 class TestGrammarLoader(unittest.TestCase):
     """Test SQL GBNF grammar parser caching."""
-    
+
     @patch('llama_cpp.LlamaGrammar')
     def test_grammar_compilation(self, mock_grammar_cls):
         mock_grammar = MagicMock()
         mock_grammar_cls.from_file.return_value = mock_grammar
-        
+
         # Compiles and returns object
         grammar = get_sql_grammar()
         self.assertIsNotNone(grammar)
@@ -108,7 +110,7 @@ class TestGrammarLoader(unittest.TestCase):
 
 class TestModelManager(unittest.TestCase):
     """Test local GGUF registry and safety warnings."""
-    
+
     def test_registry_metadata(self):
         # We should have qwen3b in registry
         self.assertIn("qwen3b-coder", REGISTRY)
@@ -122,13 +124,13 @@ class TestModelManager(unittest.TestCase):
         mock_profile.ram_total_gb = 4.0
         mock_profile.ram_available_gb = 1.5
         mock_detect.return_value = mock_profile
-        
+
         manager = ModelManager()
         # Qwen 3B Coder needs 8GB RAM, so it should trigger warning (is_compat = False)
         is_compat, warn_msg = manager.check_compatibility("qwen3b-coder")
         self.assertFalse(is_compat)
         self.assertIn("WARNING: This model ('qwen3b-coder') requires at least 8GB", warn_msg)
-        
+
         # Mock high RAM (16GB)
         mock_profile.ram_total_gb = 16.0
         is_compat, warn_msg = manager.check_compatibility("qwen3b-coder")
@@ -209,4 +211,3 @@ class TestLocalPlannerSchemaAgnostic(unittest.TestCase):
         )
         plan = client.generate_plan("total amount by customer", schema)
         self.assertIn("orders", plan.tables)
-

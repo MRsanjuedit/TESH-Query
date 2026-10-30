@@ -493,7 +493,10 @@ TESH-Query supports **all databases supported by SQLAlchemy** — automatically 
 | | **Google BigQuery** | `sqlalchemy-bigquery` | Google Standard SQL, backtick quoting |
 | | **Databricks** | `databricks-sql-connector` | Spark SQL dialect, Delta Lake catalogs |
 | | **Amazon Redshift** | `sqlalchemy-redshift` | Redshift dialect, distkey/sortkey aware |
-| **Real-Time OLAP** | **DuckDB** | `duckdb-engine` | In-process vectorized analytics, Parquet/CSV scanning |
+| | **Amazon Athena** | `PyAthena` | Presto-compatible query syntax, partition pruning |
+| **Lakehouses & Lakebases** | **Delta Lake** | `duckdb` + `deltalake` | Direct Delta table & lakehouse querying (`delta://`), time-travel |
+| | **Parquet Lakehouse** | `duckdb` + `pyarrow` | Native Parquet scanning (`lakehouse://`), partition awareness |
+| **Real-Time OLAP** | **DuckDB / MotherDuck** | `duckdb-engine` | In-process vectorized analytics, Parquet/CSV scanning |
 | | **ClickHouse** | `clickhouse-connect` | ClickHouse SQL, specialized aggregations |
 | **Relational** | **PostgreSQL** | `teshq[postgres]` (`asyncpg`) | CTEs, Window functions, JSONB operators |
 | | **MySQL / MariaDB** | `teshq[mysql]` (`PyMySQL`) | Backtick escaping, MySQL 8.0+ window functions |

@@ -29,7 +29,7 @@ classifiers = [
 # Core runtime dependencies — intentionally broad upper bounds so the package
 # installs cleanly in modern environments while still receiving security fixes.
 dependencies = [
-    "SQLAlchemy>=2.0,<3.0",
+    "SQLAlchemy>=2.0.36,<2.1",
     "python-dotenv>=1.0",
     # PostgreSQL: NOT a hard dep — install the 'postgres' extra or set it up separately.
     # psycopg2-binary has no Python 3.13+ wheel yet; asyncpg is the recommended alternative.
@@ -134,6 +134,7 @@ snowflake = [
 
 databricks = [
     "databricks-sql-connector>=3.0.0",
+    "databricks-sqlalchemy>=2.0.0",
 ]
 
 redshift = [
@@ -149,6 +150,24 @@ duckdb = [
 clickhouse = [
     "clickhouse-connect>=0.7.0",
     "clickhouse-sqlalchemy>=0.3.0",
+]
+
+# ── Delta Lake & Lakehouses ───────────────────────────────────────────
+delta = [
+    "deltalake>=0.17",
+    "pyarrow>=14.0",
+    "duckdb>=1.1.0",
+    "duckdb-engine>=0.13.0",
+]
+
+# ── Distributed Query Engines ─────────────────────────────────────────
+trino = [
+    "trino>=0.328",
+    "sqlalchemy-trino>=0.5.0",
+]
+
+athena = [
+    "PyAthena>=3.0.0",
 ]
 
 # Convenience bundle for modern analytics
@@ -217,9 +236,13 @@ all-databases = [
     "sqlalchemy-bigquery>=1.11.0",
     "snowflake-sqlalchemy>=1.6.0",
     "duckdb-engine>=0.13.0",
+    "duckdb>=1.1.0",
+    "deltalake>=0.17",
+    "pyarrow>=14.0",
     "clickhouse-connect>=0.7.0",
     "sqlalchemy-redshift>=0.8.0",
     "databricks-sql-connector>=3.0.0",
+    "databricks-sqlalchemy>=2.0.0",
 ]
 
 # All optional features
@@ -231,9 +254,13 @@ all-features = [
     "sqlalchemy-bigquery>=1.11.0",
     "snowflake-sqlalchemy>=1.6.0",
     "duckdb-engine>=0.13.0",
+    "duckdb>=1.1.0",
+    "deltalake>=0.17",
+    "pyarrow>=14.0",
     "clickhouse-connect>=0.7.0",
     "sqlalchemy-redshift>=0.8.0",
     "databricks-sql-connector>=3.0.0",
+    "databricks-sqlalchemy>=2.0.0",
     "langsmith>=0.1",
 ]
 

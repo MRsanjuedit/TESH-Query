@@ -111,4 +111,3 @@ class TestConfigDashboard:
         assert "Database configuration cancelled." in result.stdout
         # Should not fall through to print the dashboard
         assert "⚙ TESHQ Configuration" not in result.stdout
-

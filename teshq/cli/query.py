@@ -18,7 +18,7 @@ from teshq.core.exceptions import TeshqConfigurationError
 from teshq.core.validation import CLIValidator, ValidationError
 from teshq.telemetry.events import track_command, track_error, track_feature
 from teshq.utils.output import QueryResult
-from teshq.utils.save import resolve_output_path, save_to_csv, save_to_excel, save_to_sqlite
+from teshq.utils.save import resolve_output_path, save_to_csv, save_to_excel, save_to_parquet, save_to_sqlite
 
 # Suppress annoying Pydantic/LangChain warnings that interfere with the rich console UI
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -38,6 +38,7 @@ def save_results(
     csv_path: str = None,
     excel_path: str = None,
     sqlite_path: str = None,
+    parquet_path: str = None,
     sqlite_table: str = "results",
     query_text: str = None,
 ) -> dict:
@@ -67,6 +68,13 @@ def save_results(
             resolved_str += ".db"
         save_to_sqlite(df, resolved_str, sqlite_table)
         saved["sqlite"] = display
+    if parquet_path:
+        resolved, display = resolve_output_path(query_text=query_text, ext="parquet", custom_path=parquet_path)
+        resolved_str = str(resolved)
+        if not resolved_str.endswith((".parquet", ".pq")):
+            resolved_str += ".parquet"
+        save_to_parquet(df, resolved_str)
+        saved["parquet"] = display
     return saved
 
 
@@ -98,6 +106,11 @@ def process_nl_query(
     save_sqlite: str = typer.Option(
         None, "--save-sqlite", metavar="FILE",
         help="Save results to a SQLite database file",
+        rich_help_panel=PANEL_EXPORT,
+    ),
+    save_parquet: str = typer.Option(
+        None, "--save-parquet", metavar="FILE",
+        help="Save results to a Parquet file (.parquet)",
         rich_help_panel=PANEL_EXPORT,
     ),
     limit: int = typer.Option(
@@ -253,7 +266,12 @@ def process_nl_query(
         # We still validate user-provided save paths if they have directory components
 
         # Validate save paths if provided
-        save_options = [(save_csv, "csv"), (save_excel, "excel"), (save_sqlite, "sqlite")]
+        save_options = [
+            (save_csv, "csv"),
+            (save_excel, "excel"),
+            (save_sqlite, "sqlite"),
+            (save_parquet, "parquet"),
+        ]
 
         for save_path, format_type in save_options:
             if save_path:
@@ -379,17 +397,17 @@ def process_nl_query(
             )
 
         # Save results if requested - use the normalized DataFrame
-        if result is not None and (save_csv or save_excel or save_sqlite):
+        if result is not None and (save_csv or save_excel or save_sqlite or save_parquet):
             if len(result) == 0:
                 warning("⚠️  Query returned 0 rows — saving empty result set.")
             df = result.dataframe
             saved_paths = save_results(
-                df, save_csv, save_excel, save_sqlite,
+                df, save_csv, save_excel, save_sqlite, save_parquet,
                 query_text=natural_language_request,
             )
 
             # Track feature usage
-            for fmt_key in ("csv", "excel", "sqlite"):
+            for fmt_key in ("csv", "excel", "sqlite", "parquet"):
                 if fmt_key in saved_paths:
                     track_feature(f"save_{fmt_key}")
 

@@ -104,7 +104,10 @@ def display_config_dashboard():
                 host = url_obj.host or "localhost"
                 port_str = f":{url_obj.port}" if url_obj.port else ""
                 user_str = f"{url_obj.username}@" if url_obj.username else ""
-                masked = f"{backend}://{user_str}*****@{host}{port_str}/{db_name}" if url_obj.username else f"{backend}://{host}{port_str}/{db_name}"
+                if url_obj.username:
+                    masked = f"{backend}://{user_str}*****@{host}{port_str}/{db_name}"
+                else:
+                    masked = f"{backend}://{host}{port_str}/{db_name}"
                 db_status = "[#10B981]● Connected[/#10B981]"
                 db_detail = f"[#C8C8D4]{masked}[/#C8C8D4]"
         except Exception:
@@ -190,7 +193,7 @@ def display_config_dashboard():
     console.print("  [#8888A0]Quick Actions:[/#8888A0]")
     console.print("    [#6366F1]teshq config --wizard[/#6366F1]   [#5E5E78]Guided setup (DB + AI in 30s)[/#5E5E78]")
     console.print("    [#6366F1]teshq config --db[/#6366F1]       [#5E5E78]Configure database interactively[/#5E5E78]")
-    console.print("    [#6366F1]teshq config --ai[/#6366F1]       [#5E5E78]Configure AI provider (Gemini / Azure / Local)[/#5E5E78]")
+    console.print("    [#6366F1]teshq config --ai[/#6366F1]       [#5E5E78]Configure AI provider[/#5E5E78]")
     console.print("    [#6366F1]teshq config validate[/#6366F1]   [#5E5E78]Test connection & validate[/#5E5E78]")
     console.print("    [#6366F1]teshq config --help[/#6366F1]     [#5E5E78]Show all options & scripting flags[/#5E5E78]")
     console.print()
@@ -315,45 +318,80 @@ def _prompt_for_database_url(indent: str = "") -> str:
     """Helper to prompt for database connection details interactively based on DB category."""
     from rich.console import Console
     console = Console()
-    
+
     categories = UnifiedDatabaseConnector.get_categorized_connectors()
-    
+
     console.print(f"{indent}[bold]Select Database Category:[/bold]")
     cat_keys = list(categories.keys())
     for i, cat in enumerate(cat_keys, 1):
         console.print(f"{indent}  {i}. {cat}")
-    
+
     cat_idx = prompt(f"{indent}Category (1-{len(cat_keys)})", default="1", expected_type=int)
     cat_idx = max(1, min(cat_idx, len(cat_keys)))
     selected_cat = cat_keys[cat_idx - 1]
     db_choices = categories[selected_cat]
-    
+
     db_type = prompt(f"{indent}Database type", choices=db_choices, default=db_choices[0]).lower()
-    
+
     if db_type == "sqlite":
         sqlite_files = [f for f in os.listdir(".") if f.endswith((".sqlite", ".db", ".sqlite3")) and os.path.isfile(f)]
         default_sqlite = sqlite_files[0] if sqlite_files else "sqlite.db"
         db_name = prompt(f"{indent}SQLite file path", default=default_sqlite)
         return f"sqlite:///{db_name}"
-        
+
     elif db_type == "duckdb":
         duckdb_target = prompt(f"{indent}DuckDB file path (or :memory: / MotherDuck token)", default=":memory:")
         if duckdb_target.startswith("md:"):
             return f"duckdb:///{duckdb_target}"
         return f"duckdb:///{duckdb_target}"
-        
+
+    elif db_type in ("delta", "deltalake"):
+        lake_path = prompt(f"{indent}Delta Lake table or directory path (local or s3/gcs/abfss)", default="./data/delta")
+        if not lake_path.startswith(("/", "s3://", "gcs://", "http://", "https://", "abfss://")):
+            lake_path = "/" + lake_path
+        return f"delta://{lake_path}"
+
+    elif db_type in ("lakehouse", "parquet"):
+        lake_path = prompt(f"{indent}Parquet dataset or directory path (local or s3/gcs/abfss)", default="./data/lakehouse")
+        if not lake_path.startswith(("/", "s3://", "gcs://", "http://", "https://", "abfss://")):
+            lake_path = "/" + lake_path
+        return f"lakehouse://{lake_path}"
+
+    elif db_type == "trino":
+        host = prompt(f"{indent}Trino Coordinator Host", default="localhost")
+        port = prompt(f"{indent}Trino Port", default=8080, expected_type=int)
+        user = prompt(f"{indent}Username", default="trino")
+        catalog = prompt(f"{indent}Catalog (e.g. delta, iceberg, hive)", default="delta")
+        schema = prompt(f"{indent}Schema", default="default")
+        return f"trino://{user}@{host}:{port}/{catalog}/{schema}"
+
+    elif db_type == "presto":
+        host = prompt(f"{indent}Presto Coordinator Host", default="localhost")
+        port = prompt(f"{indent}Presto Port", default=8080, expected_type=int)
+        user = prompt(f"{indent}Username", default="presto")
+        catalog = prompt(f"{indent}Catalog", default="hive")
+        schema = prompt(f"{indent}Schema", default="default")
+        return f"presto://{user}@{host}:{port}/{catalog}/{schema}"
+
+    elif db_type == "athena":
+        region = prompt(f"{indent}AWS Region", default="us-east-1")
+        s3_staging = prompt(f"{indent}S3 Staging Directory (e.g. s3://my-bucket/athena-results/)")
+        database = prompt(f"{indent}Database / Workgroup", default="default")
+        safe_s3 = quote_plus(s3_staging)
+        return f"awsathena+rest://:@athena.{region}.amazonaws.com:443/{database}?s3_staging_dir={safe_s3}"
+
     elif db_type == "bigquery":
         project_id = prompt(f"{indent}Google Cloud Project ID")
         dataset = prompt(f"{indent}Dataset name (optional)", default="")
         credentials_path = prompt(f"{indent}Service Account JSON path (leave empty to use default ADC)", default="")
-        
+
         url = f"bigquery://{project_id}"
         if dataset:
             url += f"/{dataset}"
         if credentials_path:
             url += f"?credentials_path={quote_plus(credentials_path)}"
         return url
-        
+
     elif db_type == "snowflake":
         account = prompt(f"{indent}Account Identifier (e.g., xy12345.us-east-1)")
         user = prompt(f"{indent}Username")
@@ -362,25 +400,28 @@ def _prompt_for_database_url(indent: str = "") -> str:
         schema = prompt(f"{indent}Schema (optional)", default="PUBLIC")
         warehouse = prompt(f"{indent}Warehouse (optional)", default="")
         role = prompt(f"{indent}Role (optional)", default="")
-        
+
         safe_password = quote_plus(password)
         url = f"snowflake://{user}:{safe_password}@{account}/{database}/{schema}"
         params = []
-        if warehouse: params.append(f"warehouse={warehouse}")
-        if role: params.append(f"role={role}")
-        if params: url += "?" + "&".join(params)
+        if warehouse:
+            params.append(f"warehouse={warehouse}")
+        if role:
+            params.append(f"role={role}")
+        if params:
+            url += "?" + "&".join(params)
         return url
-        
+
     elif db_type == "databricks":
         host = prompt(f"{indent}Workspace Host (e.g., adb-123.azuredatabricks.net)")
         http_path = prompt(f"{indent}HTTP Path")
         token = getpass(f"{indent}Personal Access Token: ")
         catalog = prompt(f"{indent}Catalog (optional)", default="hive_metastore")
         schema = prompt(f"{indent}Schema (optional)", default="default")
-        
+
         safe_token = quote_plus(token)
         return f"databricks://token:{safe_token}@{host}?http_path={http_path}&catalog={catalog}&schema={schema}"
-        
+
     elif db_type == "clickhouse":
         host = prompt(f"{indent}Host", default="localhost")
         port = prompt(f"{indent}Port (Native=9000, HTTP=8123)", default="9000")
@@ -401,15 +442,20 @@ def _prompt_for_database_url(indent: str = "") -> str:
                     continue
             break
         db_host = prompt(f"{indent}Database host", default="localhost")
-        
+
         default_port = {
             "postgresql": 5432, "postgres": 5432, "mysql": 3306,
             "oracle": 1521, "redshift": 5439, "mssql": 1433,
         }.get(db_type, 5432)
-        
-        db_port = prompt(f"{indent}Database port", default=default_port, expected_type=int, validate=lambda p: 1 <= p <= 65535)
+
+        db_port = prompt(
+            f"{indent}Database port",
+            default=default_port,
+            expected_type=int,
+            validate=lambda p: 1 <= p <= 65535,
+        )
         db_name = prompt(f"{indent}Database name")
-        
+
         safe_password = quote_plus(db_password)
         if db_type == "redshift":
             scheme = "redshift+psycopg2"
@@ -508,19 +554,19 @@ def configure_local_interactive() -> dict:
             default_model_path = os.path.join(default_model_dir, files[0])
 
     model_path = prompt("Local GGUF model path", default=default_model_path)
-    
+
     gpu_layers = prompt(
         "Number of layers to offload to GPU (-1 for auto, 0 for CPU-only)",
         default=str(hw.recommended_n_gpu_layers),
         validate=lambda x: x.replace("-", "").isdigit()
     )
-    
+
     ctx_size = prompt(
         "Local model context size",
         default=str(hw.recommended_n_ctx),
         expected_type=int
     )
-    
+
     threads = prompt(
         "Number of CPU threads (0 for auto)",
         default=str(max(1, hw.cpu_cores - 1)),
@@ -545,11 +591,15 @@ def configure_ai_interactive() -> dict:
     console = Console()
     console.print()
     console.print("  [bold #F1F1F6]Choose AI Provider:[/bold #F1F1F6]")
-    console.print("    [#6366F1]1.[/#6366F1] [bold]Google Gemini[/bold]       [#5E5E78](Cloud API - Fast, free tier available)[/#5E5E78]")
-    console.print("    [#6366F1]2.[/#6366F1] [bold]Azure OpenAI[/bold]        [#5E5E78](Enterprise Cloud API)[/#5E5E78]")
-    console.print("    [#6366F1]3.[/#6366F1] [bold]Local GGUF Model[/bold]    [#5E5E78](Offline / On-Device, CPU or GPU)[/#5E5E78]")
+    console.print("    [#6366F1]1.[/#6366F1] [bold]Gemini[/bold]               [#5E5E78](Fast cloud API)[/#5E5E78]")
+    console.print("    [#6366F1]2.[/#6366F1] [bold]Azure OpenAI[/bold]         [#5E5E78](Enterprise Cloud API)[/#5E5E78]")
+    console.print("    [#6366F1]3.[/#6366F1] [bold]Local GGUF[/bold]           [#5E5E78](Offline / On-Device)[/#5E5E78]")
     console.print()
-    choice = prompt("  Select provider (1, 2, or 3)", choices=["1", "2", "3", "gemini", "azure", "local"], default="1").lower()
+    choice = prompt(
+        "  Select provider (1, 2, or 3)",
+        choices=["1", "2", "3", "gemini", "azure", "local"],
+        default="1",
+    ).lower()
 
     if choice in ("1", "gemini"):
         api_key, model_name = configure_gemini_interactive()
@@ -738,12 +788,19 @@ def config(
 
     try:
         # Determine if any direct options or action flags were passed
-        db_options_provided = any([db_url, db_type_opt, db_user_opt, db_password_opt, db_host_opt, db_port_opt, db_name_opt])
+        db_options_provided = any([
+            db_url, db_type_opt, db_user_opt, db_password_opt, db_host_opt, db_port_opt, db_name_opt,
+        ])
         file_path_options_provided = any([output_file_path, file_store_path])
         gemini_options_provided = gemini_api_key_opt is not None or gemini_model_name_opt != DEFAULT_GEMINI_MODEL
         azure_options_provided = any([azure_endpoint_opt, azure_deployment_opt, azure_api_version_opt, azure_api_key_opt])
-        local_options_provided = any([local_model_path_opt, local_gpu_layers_opt is not None, local_ctx_opt, local_threads_opt])
-        interactive_requested = any([force_configure_db, force_configure_ai, force_configure_gemini, force_configure_azure, force_configure_local, wizard])
+        local_options_provided = any([
+            local_model_path_opt, local_gpu_layers_opt is not None, local_ctx_opt, local_threads_opt,
+        ])
+        interactive_requested = any([
+            force_configure_db, force_configure_ai, force_configure_gemini,
+            force_configure_azure, force_configure_local, wizard,
+        ])
 
         # ── Default / Status: show dashboard and exit cleanly ──────────────
         if show_status or (
@@ -958,7 +1015,12 @@ def config(
                     config_to_save["DATABASE_URL"] = final_db_url_to_save
 
                 # Gemini
-                if force_configure_gemini or (force_configure_ai and actual_gemini_api_key_to_save) or gemini_options_provided:
+                should_save_gemini = (
+                    force_configure_gemini
+                    or (force_configure_ai and actual_gemini_api_key_to_save)
+                    or gemini_options_provided
+                )
+                if should_save_gemini:
                     if actual_gemini_api_key_to_save is not None:
                         config_to_save["GEMINI_API_KEY"] = actual_gemini_api_key_to_save
                     if actual_gemini_model_to_save is not None:
@@ -981,7 +1043,12 @@ def config(
                 # Output file path
                 if output_file_path:
                     resolved_output_path = os.path.abspath(output_file_path)
-                    os.makedirs(os.path.dirname(resolved_output_path) if os.path.splitext(resolved_output_path)[1] else resolved_output_path, exist_ok=True)
+                    target_dir = (
+                        os.path.dirname(resolved_output_path)
+                        if os.path.splitext(resolved_output_path)[1]
+                        else resolved_output_path
+                    )
+                    os.makedirs(target_dir, exist_ok=True)
                     config_to_save["OUTPUT_PATH"] = resolved_output_path
 
                 # File store path

@@ -97,5 +97,3 @@ class TestSaveUtils:
             path = str(Path(tmp_dir) / "test.db")
             save_to_sqlite(df, db_path=path, table_name="results")
             assert Path(path).exists()
-
-

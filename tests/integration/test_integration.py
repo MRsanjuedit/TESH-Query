@@ -17,7 +17,6 @@ from teshq.core.sql_normalizer import normalize_sql
 from teshq.core.sql_validator import validate_sql
 
 
-
 # ---------------------------------------------------------------------------
 # Fixture: temporary SQLite database with test data
 # ---------------------------------------------------------------------------

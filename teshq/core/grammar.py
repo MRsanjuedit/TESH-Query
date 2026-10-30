@@ -12,6 +12,7 @@ from teshq.utils.logging import logger
 _GRAMMAR_PATH = Path(__file__).parent / "sql_grammar.gbnf"
 _cached_grammar = None
 
+
 def get_sql_grammar():
     """
     Load and compile the SQL GBNF grammar.
@@ -22,18 +23,18 @@ def get_sql_grammar():
     global _cached_grammar
     if _cached_grammar is not None:
         return _cached_grammar
-        
+
     try:
         from llama_cpp import LlamaGrammar
     except ImportError:
         # Graceful fallback: do not crash on import if only cloud provider is used.
         logger.debug("llama-cpp-python is not installed. Local SQL GBNF grammar will not be loaded.")
         return None
-        
+
     if not _GRAMMAR_PATH.exists():
         logger.error(f"SQL GBNF grammar file not found at {_GRAMMAR_PATH}")
         return None
-        
+
     try:
         logger.info(f"Compiling SQL GBNF grammar from {_GRAMMAR_PATH}...")
         _cached_grammar = LlamaGrammar.from_file(str(_GRAMMAR_PATH))

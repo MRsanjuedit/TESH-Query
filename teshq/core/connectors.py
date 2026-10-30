@@ -46,6 +46,15 @@ class DatabaseConnector(ABC):
         """Get list of required packages for this database."""
         pass
 
+    def create_custom_engine(
+        self,
+        url: str,
+        config: Dict[str, Any],
+        **kwargs: Any,
+    ) -> Optional[Engine]:
+        """Optionally create a custom Engine (e.g. for Delta Lake or file-based Lakehouse engines)."""
+        return None
+
 
 class PostgreSQLConnector(DatabaseConnector):
     """PostgreSQL database connector."""
@@ -432,7 +441,7 @@ class DatabricksConnector(DatabaseConnector):
         return url
 
     def get_required_packages(self) -> List[str]:
-        return ["databricks-sql-connector", "sqlalchemy-databricks"]
+        return ["databricks-sql-connector", "databricks-sqlalchemy"]
 
 
 class MSSQLConnector(DatabaseConnector):
@@ -470,6 +479,332 @@ class MSSQLConnector(DatabaseConnector):
 
     def get_required_packages(self) -> List[str]:
         return ["pymssql"]
+
+
+class TrinoConnector(DatabaseConnector):
+    """Trino distributed query engine connector for data lakehouses and federated warehouses."""
+
+    def get_engine_args(self, url: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        from sqlalchemy.pool import QueuePool
+        return {
+            "poolclass": QueuePool,
+            "pool_size": config.get("pool_size", 5),
+            "max_overflow": config.get("max_overflow", 10),
+            "pool_timeout": config.get("pool_timeout", 30),
+            "pool_pre_ping": config.get("pool_pre_ping", True),
+            "echo": config.get("echo", False),
+        }
+
+    def test_connection_query(self) -> str:
+        return "SELECT 1"
+
+    def get_introspection_config(self) -> Dict[str, Any]:
+        return {
+            "supports_foreign_keys": False,
+            "supports_indexes": False,
+            "supports_check_constraints": False,
+            "supports_sequences": False,
+            "information_schema_available": True,
+        }
+
+    def normalize_url(self, url: str) -> str:
+        return url
+
+    def get_required_packages(self) -> List[str]:
+        return ["trino", "sqlalchemy-trino"]
+
+
+class PrestoConnector(DatabaseConnector):
+    """Presto distributed SQL query engine connector."""
+
+    def get_engine_args(self, url: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        from sqlalchemy.pool import NullPool
+        return {
+            "poolclass": NullPool,
+            "echo": config.get("echo", False),
+        }
+
+    def test_connection_query(self) -> str:
+        return "SELECT 1"
+
+    def get_introspection_config(self) -> Dict[str, Any]:
+        return {
+            "supports_foreign_keys": False,
+            "supports_indexes": False,
+            "supports_check_constraints": False,
+            "supports_sequences": False,
+            "information_schema_available": True,
+        }
+
+    def normalize_url(self, url: str) -> str:
+        return url
+
+    def get_required_packages(self) -> List[str]:
+        return ["pyhive", "presto-python-client"]
+
+
+class AthenaConnector(DatabaseConnector):
+    """Amazon Athena lakehouse query engine connector."""
+
+    def get_engine_args(self, url: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        from sqlalchemy.pool import NullPool
+        return {
+            "poolclass": NullPool,
+            "echo": config.get("echo", False),
+        }
+
+    def test_connection_query(self) -> str:
+        return "SELECT 1"
+
+    def get_introspection_config(self) -> Dict[str, Any]:
+        return {
+            "supports_foreign_keys": False,
+            "supports_indexes": False,
+            "supports_check_constraints": False,
+            "supports_sequences": False,
+            "information_schema_available": True,
+        }
+
+    def normalize_url(self, url: str) -> str:
+        if url.startswith("athena://"):
+            url = url.replace("athena://", "awsathena+rest://", 1)
+        return url
+
+    def get_required_packages(self) -> List[str]:
+        return ["PyAthena"]
+
+
+class DeltaLakeConnector(DatabaseConnector):
+    """Delta Lake table and lakehouse connector.
+
+    Mounts Delta Lake tables (local directories or cloud object storage)
+    into a high-performance in-memory DuckDB query engine, enabling full SQL
+    queries, schema introspection, and LLM query generation over Delta tables.
+    """
+
+    def get_engine_args(self, url: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        from sqlalchemy.pool import NullPool
+        return {
+            "poolclass": NullPool,
+            "echo": config.get("echo", False),
+        }
+
+    def test_connection_query(self) -> str:
+        return "SELECT 1"
+
+    def get_introspection_config(self) -> Dict[str, Any]:
+        return {
+            "supports_foreign_keys": False,
+            "supports_indexes": False,
+            "supports_check_constraints": False,
+            "supports_sequences": False,
+            "information_schema_available": True,
+        }
+
+    def normalize_url(self, url: str) -> str:
+        return url
+
+    def get_required_packages(self) -> List[str]:
+        return ["duckdb", "deltalake"]
+
+    @staticmethod
+    def _parse_lake_path(url: str) -> str:
+        raw = url
+        for prefix in ("deltalake:///", "delta:///", "deltalake://", "delta://"):
+            if raw.startswith(prefix):
+                raw = raw[len(prefix):]
+                if prefix.endswith("///") and not raw.startswith("/"):
+                    raw = "/" + raw
+                break
+        return raw
+
+    def create_custom_engine(
+        self,
+        url: str,
+        config: Dict[str, Any],
+        **kwargs: Any,
+    ) -> Optional[Engine]:
+        import os
+        import re
+        from pathlib import Path
+        from sqlalchemy import create_engine as _sqla_create_engine, event
+
+        raw_path = self._parse_lake_path(url)
+        delta_tables: Dict[str, str] = {}
+        is_cloud = raw_path.startswith(("s3://", "gcs://", "http://", "https://", "abfss://", "azure://"))
+
+        if is_cloud:
+            tbl_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_path.rstrip("/").split("/")[-1]) or "delta_table"
+            delta_tables[tbl_name] = raw_path
+        else:
+            p = Path(raw_path).resolve()
+            if (p / "_delta_log").exists():
+                safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", p.name) or "delta_table"
+                delta_tables[safe_name] = str(p)
+            elif p.is_dir():
+                for sub in p.iterdir():
+                    if sub.is_dir() and (sub / "_delta_log").exists():
+                        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", sub.name)
+                        delta_tables[safe_name] = str(sub.resolve())
+            if not delta_tables:
+                safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", p.name) or "delta_table"
+                delta_tables[safe_name] = str(p)
+
+        eng = _sqla_create_engine("duckdb:///:memory:", echo=config.get("echo", False))
+
+        @event.listens_for(eng, "connect")
+        def _setup_delta(dbapi_con, rec):
+            has_delta_ext = False
+            try:
+                dbapi_con.execute("LOAD delta;")
+                has_delta_ext = True
+            except Exception:
+                try:
+                    dbapi_con.execute("INSTALL delta; LOAD delta;")
+                    has_delta_ext = True
+                except Exception:
+                    has_delta_ext = False
+
+            if is_cloud:
+                try:
+                    dbapi_con.execute("LOAD httpfs;")
+                except Exception:
+                    try:
+                        dbapi_con.execute("INSTALL httpfs; LOAD httpfs;")
+                    except Exception:
+                        pass
+
+            for tbl_name, tbl_path in delta_tables.items():
+                mounted = False
+                if has_delta_ext:
+                    try:
+                        dbapi_con.execute(f"CREATE OR REPLACE VIEW {tbl_name} AS SELECT * FROM delta_scan('{tbl_path}')")
+                        mounted = True
+                    except Exception:
+                        mounted = False
+
+                if not mounted:
+                    try:
+                        from deltalake import DeltaTable
+                        dt = DeltaTable(tbl_path)
+                        arrow_ds = dt.to_pyarrow_dataset()
+                        if hasattr(dbapi_con, "register"):
+                            dbapi_con.register(tbl_name, arrow_ds)
+                            mounted = True
+                        elif hasattr(dbapi_con, "cursor"):
+                            dbapi_con.cursor().register(tbl_name, arrow_ds)
+                            mounted = True
+                    except Exception:
+                        mounted = False
+
+                if not mounted:
+                    try:
+                        p_glob = os.path.join(tbl_path, "*.parquet")
+                        dbapi_con.execute(f"CREATE OR REPLACE VIEW {tbl_name} AS SELECT * FROM read_parquet('{p_glob}')")
+                    except Exception:
+                        pass
+
+        return eng
+
+
+class LakehouseConnector(DatabaseConnector):
+    """Data lakehouse connector for Parquet datasets and directories.
+
+    Mounts Parquet datasets and directories into DuckDB as relational views
+    for instant schema reflection, querying, and AI SQL generation.
+    """
+
+    def get_engine_args(self, url: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        from sqlalchemy.pool import NullPool
+        return {
+            "poolclass": NullPool,
+            "echo": config.get("echo", False),
+        }
+
+    def test_connection_query(self) -> str:
+        return "SELECT 1"
+
+    def get_introspection_config(self) -> Dict[str, Any]:
+        return {
+            "supports_foreign_keys": False,
+            "supports_indexes": False,
+            "supports_check_constraints": False,
+            "supports_sequences": False,
+            "information_schema_available": True,
+        }
+
+    def normalize_url(self, url: str) -> str:
+        return url
+
+    def get_required_packages(self) -> List[str]:
+        return ["duckdb", "pyarrow"]
+
+    @staticmethod
+    def _parse_path(url: str) -> str:
+        raw = url
+        for prefix in ("lakehouse:///", "parquet:///", "lakehouse://", "parquet://"):
+            if raw.startswith(prefix):
+                raw = raw[len(prefix):]
+                if prefix.endswith("///") and not raw.startswith("/"):
+                    raw = "/" + raw
+                break
+        return raw
+
+    def create_custom_engine(
+        self,
+        url: str,
+        config: Dict[str, Any],
+        **kwargs: Any,
+    ) -> Optional[Engine]:
+        import re
+        from pathlib import Path
+        from sqlalchemy import create_engine as _sqla_create_engine, event
+
+        raw_path = self._parse_path(url)
+        parquet_tables: Dict[str, str] = {}
+        is_cloud = raw_path.startswith(("s3://", "gcs://", "http://", "https://", "abfss://"))
+
+        if is_cloud:
+            tbl_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_path.rstrip("/").split("/")[-1]) or "lakehouse_data"
+            parquet_tables[tbl_name] = raw_path
+        else:
+            p = Path(raw_path).resolve()
+            if p.is_file() or raw_path.endswith(".parquet"):
+                safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", p.stem) or "dataset"
+                parquet_tables[safe_name] = str(p)
+            elif p.is_dir():
+                for item in p.glob("*.parquet"):
+                    safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", item.stem)
+                    parquet_tables[safe_name] = str(item.resolve())
+                for sub in p.iterdir():
+                    if sub.is_dir() and any(sub.glob("*.parquet")):
+                        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", sub.name)
+                        parquet_tables[safe_name] = str((sub / "*.parquet").resolve())
+            if not parquet_tables:
+                safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", p.name) or "lakehouse_data"
+                parquet_tables[safe_name] = str(p)
+
+        eng = _sqla_create_engine("duckdb:///:memory:", echo=config.get("echo", False))
+
+        @event.listens_for(eng, "connect")
+        def _setup_parquet(dbapi_con, rec):
+            if is_cloud:
+                try:
+                    dbapi_con.execute("LOAD httpfs;")
+                except Exception:
+                    try:
+                        dbapi_con.execute("INSTALL httpfs; LOAD httpfs;")
+                    except Exception:
+                        pass
+            for tbl_name, tbl_path in parquet_tables.items():
+                try:
+                    dbapi_con.execute(
+                        f"CREATE OR REPLACE VIEW {tbl_name} AS SELECT * FROM read_parquet('{tbl_path}')"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not mount parquet view for {tbl_name} from {tbl_path}: {e}")
+
+        return eng
 
 
 class GenericSQLAlchemyConnector(DatabaseConnector):
@@ -538,8 +873,15 @@ class UnifiedDatabaseConnector:
         "snowflake": SnowflakeConnector(),
         "databricks": DatabricksConnector(),
         "redshift": RedshiftConnector(),
+        "trino": TrinoConnector(),
+        "presto": PrestoConnector(),
+        "athena": AthenaConnector(),
 
-        # Tier 2: Local & Real-time OLAP
+        # Tier 2: Lakehouses, Lakebases & OLAP
+        "delta": DeltaLakeConnector(),
+        "deltalake": DeltaLakeConnector(),
+        "lakehouse": LakehouseConnector(),
+        "parquet": LakehouseConnector(),
         "duckdb": DuckDBConnector(),
         "clickhouse": ClickHouseConnector(),
 
@@ -560,8 +902,8 @@ class UnifiedDatabaseConnector:
     def get_categorized_connectors(cls) -> Dict[str, List[str]]:
         """Get supported databases grouped by category."""
         return {
-            "Cloud Data Warehouses": ["bigquery", "snowflake", "databricks", "redshift"],
-            "Local & Real-Time OLAP": ["duckdb", "clickhouse"],
+            "Cloud Data Warehouses": ["bigquery", "snowflake", "databricks", "redshift", "trino", "presto", "athena"],
+            "Lakehouses & Lakebases": ["delta", "lakehouse", "duckdb", "clickhouse"],
             "Relational Databases": ["postgresql", "mysql", "mssql", "oracle", "sqlite"],
             "NoSQL & Specialized": ["cassandra"],
         }
@@ -590,6 +932,12 @@ class UnifiedDatabaseConnector:
             scheme = "mssql"
         elif scheme == "mariadb":
             scheme = "mysql"
+        elif scheme in ("delta", "deltalake"):
+            scheme = "delta"
+        elif scheme in ("lakehouse", "parquet"):
+            scheme = "lakehouse"
+        elif scheme in ("awsathena", "athena"):
+            scheme = "athena"
 
         return scheme
 
@@ -636,6 +984,15 @@ class UnifiedDatabaseConnector:
         """
         config = config or {}
         connector = cls.get_connector(url)
+
+        # Check for custom engine provider (e.g. Delta Lake, Parquet Lakehouse)
+        custom_engine = connector.create_custom_engine(url, config, **kwargs)
+        if custom_engine is not None:
+            logger.info(
+                "Creating specialized data engine",
+                database_type=cls.detect_database_type(url),
+            )
+            return custom_engine
 
         # Check for required packages
         required_packages = connector.get_required_packages()

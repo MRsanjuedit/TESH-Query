@@ -3,7 +3,7 @@ import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -137,16 +137,18 @@ def resolve_output_path(
     return resolved.resolve(), rel_display
 
 
-def save_to_csv(df: pd.DataFrame, filename: str, index: bool = False, **kwargs):
+def save_to_csv(df: Union[pd.DataFrame, Any], filename: str, index: bool = False, **kwargs):
     """
     Saves a Pandas DataFrame to a CSV file with restricted permissions (0o600).
 
     Args:
-        df: The DataFrame to save.
+        df: The DataFrame (or list/dict of records) to save.
         filename: The name of the CSV file (e.g., "output.csv").
         index: Whether to write the DataFrame index as a column. Defaults to False.
         **kwargs: Additional arguments to pass to df.to_csv().
     """
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
     try:
         logger.info("Saving data to CSV", file_path=filename, row_count=len(df))
         # Ensure directory exists if filename has a directory path
@@ -170,17 +172,19 @@ def save_to_csv(df: pd.DataFrame, filename: str, index: bool = False, **kwargs):
         raise
 
 
-def save_to_excel(df: pd.DataFrame, filename: str, sheet_name: str = "Sheet1", index: bool = False, **kwargs):
+def save_to_excel(df: Union[pd.DataFrame, Any], filename: str, sheet_name: str = "Sheet1", index: bool = False, **kwargs):
     """
     Saves a Pandas DataFrame to an Excel file with restricted permissions (0o600).
 
     Args:
-        df: The DataFrame to save.
+        df: The DataFrame (or list/dict of records) to save.
         filename: The name of the Excel file (e.g., "output.xlsx").
         sheet_name: The name of the sheet within the Excel file. Defaults to "Sheet1".
         index: Whether to write the DataFrame index as a column. Defaults to False.
         **kwargs: Additional arguments to pass to df.to_excel().
     """
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
     try:
         import openpyxl  # noqa: F401
     except ImportError:
@@ -213,13 +217,13 @@ def save_to_excel(df: pd.DataFrame, filename: str, sheet_name: str = "Sheet1", i
 
 
 def save_to_sqlite(
-    df: pd.DataFrame, db_path: str, table_name: str, if_exists: str = "replace", index: bool = False, **kwargs
+    df: Union[pd.DataFrame, Any], db_path: str, table_name: str, if_exists: str = "replace", index: bool = False, **kwargs
 ):
     """
     Saves a Pandas DataFrame to a SQLite database with restricted permissions (0o600).
 
     Args:
-        df: The DataFrame to save.
+        df: The DataFrame (or list/dict of records) to save.
         db_path: The path to the SQLite database file (e.g., "my_database.sqlite").
         table_name: The name of the table to save the DataFrame to.
         if_exists: How to behave if the table already exists.
@@ -230,6 +234,8 @@ def save_to_sqlite(
         index: Whether to write the DataFrame index as a column. Defaults to False.
         **kwargs: Additional arguments to pass to df.to_sql().
     """
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
     try:
         logger.info("Saving data to SQLite", db_file_path=db_path, table_name=table_name, row_count=len(df))
         # Ensure the directory for the database file exists
@@ -262,4 +268,82 @@ def save_to_sqlite(
         )
     except Exception as e:
         logger.error("Error saving to SQLite", error=e, db_file_path=db_path, table_name=table_name, row_count=len(df))
+        raise
+
+
+def save_to_parquet(df: Union[pd.DataFrame, Any], filename: str, index: bool = False, **kwargs):
+    """
+    Saves a Pandas DataFrame to a Parquet file with restricted permissions (0o600).
+
+    Args:
+        df: The DataFrame (or list/dict of records) to save.
+        filename: The name of the Parquet file (e.g., "output.parquet").
+        index: Whether to write the DataFrame index as a column. Defaults to False.
+        **kwargs: Additional arguments to pass to df.to_parquet().
+    """
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
+    try:
+        logger.info("Saving data to Parquet", file_path=filename, row_count=len(df))
+        parent_dir = os.path.dirname(filename)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        try:
+            df.to_parquet(filename, index=index, **kwargs)
+        except Exception as err:
+            # Fallback to DuckDB native COPY if pyarrow engine in pandas is missing
+            try:
+                import duckdb
+                con = duckdb.connect()
+                con.register("df_tmp", df)
+                con.execute(f"COPY df_tmp TO '{filename}' (FORMAT PARQUET)")
+            except Exception:
+                raise err
+        try:
+            os.chmod(filename, 0o600)
+        except Exception:
+            pass
+
+        logger.success(
+            "Data successfully saved to Parquet",
+            file_path=filename,
+            row_count=len(df),
+            file_size_bytes=os.path.getsize(filename),
+        )
+    except Exception as e:
+        logger.error("Error saving to Parquet", error=e, file_path=filename, row_count=len(df))
+        raise
+
+
+def save_to_jsonl(df: Union[pd.DataFrame, Any], filename: str, orient: str = "records", **kwargs):
+    """
+    Saves a Pandas DataFrame to a JSON Lines file with restricted permissions (0o600).
+
+    Args:
+        df: The DataFrame (or list/dict of records) to save.
+        filename: The name of the JSON Lines file (e.g., "output.jsonl").
+        orient: Format of JSON lines. Defaults to "records".
+        **kwargs: Additional arguments to pass to df.to_json().
+    """
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
+    try:
+        logger.info("Saving data to JSON Lines", file_path=filename, row_count=len(df))
+        parent_dir = os.path.dirname(filename)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        df.to_json(filename, orient=orient, lines=True, **kwargs)
+        try:
+            os.chmod(filename, 0o600)
+        except Exception:
+            pass
+
+        logger.success(
+            "Data successfully saved to JSON Lines",
+            file_path=filename,
+            row_count=len(df),
+            file_size_bytes=os.path.getsize(filename),
+        )
+    except Exception as e:
+        logger.error("Error saving to JSON Lines", error=e, file_path=filename, row_count=len(df))
         raise

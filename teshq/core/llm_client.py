@@ -16,19 +16,20 @@ from teshq.core.grammar import get_sql_grammar
 from teshq.core.dialect import SQLDialect, detect_dialect, get_dialect_display_name, get_dialect_rules
 from teshq.utils.logging import logger
 
+
 class LLMClient(Protocol):
     """Unified protocol defining operations for generating query plans and SQL."""
-    
+
     def generate_plan(self, nl_query: str, schema: str, callbacks: Optional[List[Any]] = None) -> QueryPlan:
         """Produce a structured QueryPlan (Stage 1)."""
         ...
-        
+
     def generate_sql(
-        self, 
-        nl_query: str, 
-        schema: str, 
-        plan: QueryPlan, 
-        error_hint: Optional[str] = None, 
+        self,
+        nl_query: str,
+        schema: str,
+        plan: QueryPlan,
+        error_hint: Optional[str] = None,
         callbacks: Optional[List[Any]] = None
     ) -> SQLQuery:
         """Produce a structured SQLQuery statement (Stage 2)."""
@@ -54,11 +55,11 @@ class CloudLLMClient(LLMClient):
         return self._planner.plan(nl_query, schema, callbacks=callbacks)
 
     def generate_sql(
-        self, 
-        nl_query: str, 
-        schema: str, 
-        plan: QueryPlan, 
-        error_hint: Optional[str] = None, 
+        self,
+        nl_query: str,
+        schema: str,
+        plan: QueryPlan,
+        error_hint: Optional[str] = None,
         callbacks: Optional[List[Any]] = None
     ) -> SQLQuery:
         return self._sql_gen.generate(nl_query, schema, plan, error_hint=error_hint, callbacks=callbacks)
@@ -134,7 +135,7 @@ class LocalLLMClient(LLMClient):
 
         schema_tables: Dict[str, List[str]] = {}
         schema_joins: List[str] = []
-        
+
         for line in schema.splitlines():
             line = line.strip()
             if line.startswith("TABLE "):
@@ -232,7 +233,7 @@ class LocalLLMClient(LLMClient):
             tables.append(primary_table)
             primary_col_names = [c.split()[0] for c in schema_tables[primary_table]]
             primary_col_words = set(w for c in primary_col_names for w in c.split("_"))
-            
+
             for t, sc in sorted_tables[1:]:
                 # For schema-qualified names, use the base name for matching
                 t_base = t.split(".")[-1] if "." in t else t
@@ -440,16 +441,16 @@ class LocalLLMClient(LLMClient):
         return plan
 
     def generate_sql(
-        self, 
-        nl_query: str, 
-        schema: str, 
-        plan: QueryPlan, 
-        error_hint: Optional[str] = None, 
+        self,
+        nl_query: str,
+        schema: str,
+        plan: QueryPlan,
+        error_hint: Optional[str] = None,
         callbacks: Optional[List[Any]] = None
     ) -> SQLQuery:
         """Generates SQL using grammar constraints and custom local prompt."""
         self._runtime.load(self._config)
-        
+
         dialect_str = get_dialect_display_name(self._dialect)
         rules = get_dialect_rules(self._dialect)
 
@@ -510,7 +511,7 @@ class LocalLLMClient(LLMClient):
                 parts.append(f"  Joins: {', '.join(plan.joins_needed)}")
             if parts:
                 plan_context = "Query plan:\n" + "\n".join(parts) + "\n\n"
-        
+
         prompt = f"Database Schema:\n{schema}\n\n{plan_context}Natural Language Request: {nl_query}\n\n"
         if error_hint:
             prompt += (
@@ -526,11 +527,11 @@ class LocalLLMClient(LLMClient):
             temperature=0.0,
             grammar=self._grammar,
         )
-        
+
         # Accumulate tokens
         self._prompt_tokens += res.prompt_tokens
         self._completion_tokens += res.completion_tokens
-        
+
         # Clean up any potential markdown wraps
         cleaned_query = res.text.strip()
         if cleaned_query.startswith("```"):
@@ -577,7 +578,7 @@ class LocalLLMClient(LLMClient):
 
         cols_referenced = re.findall(r"\b(?:([a-zA-Z0-9_]+)\.)?([a-zA-Z0-9_]+)\b", cleaned_query)
         SQL_KEYWORDS = {"SELECT", "FROM", "JOIN", "AS", "ON", "WHERE", "AND", "OR", "CAST", "INTEGER", "DATE", "GROUP", "BY", "ORDER", "LIMIT", "DESC", "ASC", "HAVING", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "NOT", "IS", "IN", "BETWEEN", "LIKE", "ILIKE", "EXISTS", "UNION", "ALL", "DISTINCT", "SUM", "COUNT", "AVG", "MIN", "MAX"}
-        
+
         missing_col_tables: Dict[Tuple[str, str], str] = {}
         for prefix, col in cols_referenced:
             if col.upper() in SQL_KEYWORDS:
@@ -602,7 +603,7 @@ class LocalLLMClient(LLMClient):
                     t_right = right.rsplit(".", 1)[0].lower()
                     c_left = left.rsplit(".", 1)[1]
                     c_right = right.rsplit(".", 1)[1]
-                    
+
                     if t_left == missing_table.lower() and t_right in from_join_tables:
                         target_alias = t_right
                         m_alias = re.search(rf"\b(?:FROM|JOIN)\s+{re.escape(t_right)}(?:\s+AS)?\s+([a-zA-Z0-9_]+)\b", cleaned_query, re.I)
@@ -714,7 +715,7 @@ class LocalLLMClient(LLMClient):
                     raw_cols = [c.strip().split()[0] for c in split_schema_cols(table_match.group(1)) if c.strip()]
                     if raw_cols:
                         cleaned_query = f"SELECT {', '.join(raw_cols)} FROM {table_name}{rest}"
-        
+
         # Fake callback updates if custom tracker callback provided
         if callbacks:
             for cb in callbacks:

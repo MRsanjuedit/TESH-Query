@@ -159,7 +159,7 @@ class SchemaRetriever:
             table_tokens = self._estimate_table_tokens(table)
             # Add some overhead for joins (e.g. 5 tokens per table)
             table_tokens += 5
-            
+
             if current_tokens + table_tokens <= budget_tokens:
                 selected_tables.append(table)
                 current_tokens += table_tokens
@@ -168,7 +168,7 @@ class SchemaRetriever:
                 selected_tables.append(table)
                 current_tokens += table_tokens
                 logger.warning(f"Forcing first table {table} despite exceeding token budget ({current_tokens} > {budget_tokens})")
-        
+
         logger.info(f"Retrieved {len(selected_tables)}/{len(candidates)} tables within budget of {budget_tokens} tokens (est: {current_tokens})")
         return selected_tables
 

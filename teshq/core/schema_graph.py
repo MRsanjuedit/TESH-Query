@@ -305,4 +305,3 @@ class SchemaGraph(BaseModel):
             counts[edge.right_table] = counts.get(edge.right_table, 0) + 1
         sorted_tables = sorted(counts, key=lambda t: counts[t], reverse=True)
         return sorted_tables[:limit]
-

@@ -15,12 +15,15 @@ TESH-Query supports **every database supported by SQLAlchemy**. Whether connecti
 | | **SQLite** | Built-in | `sqlite:///path/to/database.db` or `sqlite:///:memory:` |
 | **Cloud Warehouses**| **Snowflake** | `snowflake-sqlalchemy` | `snowflake://user:pass@account/dbname/schemaname?warehouse=wh` |
 | | **Google BigQuery**| `sqlalchemy-bigquery` | `bigquery://project-id/dataset_name` |
-| | **Databricks** | `databricks-sql-connector`| `databricks://token:dapi...@host:443/default?http_path=...` |
+| | **Databricks SQL** | `databricks-sql-connector`| `databricks://token:dapi...@host:443/default?http_path=...` |
 | | **Amazon Redshift**| `sqlalchemy-redshift` | `redshift+psycopg2://user:pass@cluster:5439/dbname` |
-| **Real-Time OLAP** | **DuckDB** | `duckdb-engine` | `duckdb:///analytics.duckdb` or `duckdb:///:memory:` |
+| | **Amazon Athena** | `PyAthena` | `athena://:@athena.region.amazonaws.com:443/db?s3_staging_dir=s3://...` |
+| **Lakehouses & Lakebases**| **Delta Lake** | `duckdb` + `deltalake` | `delta:///path/to/delta/table` or `delta:///path/to/lakehouse` |
+| | **Parquet Lakehouse**| `duckdb` + `pyarrow` | `lakehouse:///path/to/parquet_folder` or `parquet:///path/to/data` |
+| **Real-Time OLAP** | **DuckDB / MotherDuck** | `duckdb-engine` | `duckdb:///analytics.duckdb` or `duckdb:///md:my_db` |
 | | **ClickHouse** | `clickhouse-connect` | `clickhouse+native://user:pass@host:9000/default` |
 | **Distributed SQL** | **CockroachDB** | `cockroachdb` | `cockroachdb://user:pass@host:26257/defaultdb` |
-| | **Trino / Presto** | `trino-python-client` | `trino://user@host:8080/catalog/schema` |
+| | **Trino / Presto** | `trino` / `sqlalchemy-trino` | `trino://user@host:8080/catalog/schema` |
 | **Generic / Others**| **Any SQLAlchemy** | Any 3rd party driver | `<driver_scheme>://[user:pass@]host[:port]/database` |
 
 ---

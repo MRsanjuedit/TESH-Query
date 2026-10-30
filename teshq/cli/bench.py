@@ -12,10 +12,11 @@ from teshq.core.benchmark import BenchmarkRunner
 
 app = typer.Typer(help="Evaluate text-to-SQL accuracy, speed, and token cost.")
 
+
 @app.command(name="run")
 def run_benchmark(
     questions: Optional[str] = typer.Option(
-        None, "--questions", "-q", 
+        None, "--questions", "-q",
         help="Path to questions YAML file. Defaults to benchmarks/questions.yaml"
     ),
     provider: Optional[str] = typer.Option(
@@ -31,13 +32,13 @@ def run_benchmark(
     Run the SQL compilation benchmark suite.
     """
     print_header("TESHQ BENCHMARK HARNESS", level=1)
-    
+
     # 1. Resolve questions path
     if not questions:
         questions = os.path.join("benchmarks", "questions.yaml")
-        
+
     abs_questions_path = os.path.abspath(questions)
-    
+
     # 2. Resolve database URL
     s = get_settings()
     db_url = s.database_url
@@ -45,7 +46,7 @@ def run_benchmark(
         error("DATABASE_URL is not configured in settings. Cannot run execution-match benchmarks.")
         tip("Run: teshq config --db")
         raise typer.Exit(1)
-        
+
     # 3. Create runner
     try:
         runner = BenchmarkRunner(abs_questions_path, db_url=db_url, provider=provider)
@@ -61,33 +62,33 @@ def run_benchmark(
         except Exception as e:
             error(f"Benchmark run failed: {e}")
             raise typer.Exit(1)
-            
+
     # 5. Print Summary
     total = len(results)
     if total == 0:
         warning("No benchmark questions loaded.")
         print_footer()
         return
-        
+
     exact_matches = sum(1 for r in results if r.exact_match)
     exec_matches = sum(1 for r in results if r.execution_match)
     errors = sum(1 for r in results if r.execution_error is not None)
     avg_latency = sum(r.latency_ms for r in results) / total
-    
+
     typer.echo("")
     typer.secho("📊 Summary Results:", bold=True)
-    
+
     exec_match_pct = (exec_matches / total) * 100
     color = "green" if exec_match_pct >= 80 else "yellow" if exec_match_pct >= 50 else "red"
-    
+
     typer.secho(f"  • Execution Match:  {exec_matches}/{total} ({exec_match_pct:.1f}%)", fg=color, bold=True)
     typer.echo(f"  • Exact SQL Match:  {exact_matches}/{total} ({(exact_matches/total)*100:.1f}%)")
     typer.echo(f"  • Database Errors:  {errors}/{total} ({(errors/total)*100:.1f}%)")
     typer.echo(f"  • Avg Latency:      {avg_latency:.2f} ms")
-    
+
     # 6. Generate report markdown
     report = BenchmarkRunner.generate_report(results)
-    
+
     # Export report if requested
     if export_path:
         try:
@@ -98,20 +99,21 @@ def run_benchmark(
             success(f"Report exported to: {abs_export_path}")
         except Exception as e:
             warning(f"Failed to export report: {e}")
-            
+
     # Print the markdown report to console for rich visual inspection
     typer.echo("")
     typer.secho("📝 Detailed Results Report:", bold=True)
     typer.echo("--------------------------------------------------------------------------------")
     typer.echo(report)
     typer.echo("--------------------------------------------------------------------------------")
-    
+
     print_footer()
+
 
 @app.command(name="compare")
 def compare_benchmarks(
     questions: Optional[str] = typer.Option(
-        None, "--questions", "-q", 
+        None, "--questions", "-q",
         help="Path to questions YAML file."
     ),
 ):
@@ -119,17 +121,17 @@ def compare_benchmarks(
     Compare local vs cloud backend accuracy and speed side-by-side.
     """
     print_header("TESHQ BENCHMARK COMPARISON", level=1)
-    
+
     if not questions:
         questions = os.path.join("benchmarks", "questions.yaml")
     abs_questions_path = os.path.abspath(questions)
-    
+
     s = get_settings()
     db_url = s.database_url
     if not db_url:
         error("DATABASE_URL is not configured.")
         raise typer.Exit(1)
-        
+
     # Check if local is set up
     local_ready = False
     local_skip_reason = ""
@@ -140,7 +142,7 @@ def compare_benchmarks(
         local_ready = True
     except ImportError:
         local_skip_reason = "llama-cpp-python is not installed. Run: pip install teshq[local]"
-            
+
     # Check if cloud (google/azure) is set up
     cloud_provider = "google"
     if s.azure_openai_api_key:
@@ -160,36 +162,36 @@ def compare_benchmarks(
     else:
         warning(f"Local backend skipped: {local_skip_reason}")
         tip("Configure local models with: teshq config --local")
-        
+
     # 2. Run cloud
     cloud_results = []
     with status(f"Running cloud benchmarks ({cloud_provider.upper()})...", success_message="Cloud benchmarks complete."):
         runner = BenchmarkRunner(abs_questions_path, db_url=db_url, provider=cloud_provider)
         cloud_results = runner.run()
-        
+
     # 3. Compare and output side-by-side
     total = len(cloud_results)
     if total == 0:
         error("No benchmark items loaded.")
         raise typer.Exit(1)
-        
+
     typer.echo("")
     typer.secho("📊 Comparison Metrics:", bold=True)
     typer.echo("| Metric | Local Backend | Cloud Backend |")
     typer.echo("| :--- | :---: | :---: |")
-    
+
     cloud_exec = sum(1 for r in cloud_results if r.execution_match)
     cloud_exact = sum(1 for r in cloud_results if r.exact_match)
     cloud_errors = sum(1 for r in cloud_results if r.execution_error is not None)
     cloud_lat = sum(r.latency_ms for r in cloud_results) / total
-    
+
     if local_results:
         local_total = len(local_results)
         local_exec = sum(1 for r in local_results if r.execution_match)
         local_exact = sum(1 for r in local_results if r.exact_match)
         local_errors = sum(1 for r in local_results if r.execution_error is not None)
         local_lat = sum(r.latency_ms for r in local_results) / local_total
-        
+
         typer.echo(f"| **Execution Match %** | {local_exec/local_total*100:.1f}% ({local_exec}/{local_total}) | {cloud_exec/total*100:.1f}% ({cloud_exec}/{total}) |")
         typer.echo(f"| **Exact SQL Match %** | {local_exact/local_total*100:.1f}% ({local_exact}/{local_total}) | {cloud_exact/total*100:.1f}% ({cloud_exact}/{total}) |")
         typer.echo(f"| **Database Errors**   | {local_errors}/{local_total} | {cloud_errors}/{total} |")
@@ -199,5 +201,5 @@ def compare_benchmarks(
         typer.echo(f"| **Exact SQL Match %** | ⏭ Skipped | {cloud_exact/total*100:.1f}% ({cloud_exact}/{total}) |")
         typer.echo(f"| **Database Errors**   | ⏭ Skipped | {cloud_errors}/{total} |")
         typer.echo(f"| **Avg Latency (ms)**  | ⏭ Skipped | {cloud_lat:.2f} ms |")
-        
+
     print_footer()

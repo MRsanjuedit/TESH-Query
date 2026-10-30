@@ -148,7 +148,10 @@ class TestIntrospectSecurity:
             ("cockroachdb://root@host:26257/defaultdb", SQLDialect.POSTGRESQL, "PostgreSQL"),
             ("mariadb://user:pass@host:3306/db", SQLDialect.MYSQL, "MySQL"),
             ("duckdb:///my.duckdb", SQLDialect.DUCKDB, "DuckDB"),
-            ("trino://user@host:8080/hive/default", SQLDialect.GENERIC, "Trino SQL"),
+            ("delta:///data/lakehouse", SQLDialect.DELTALAKE, "Delta Lake"),
+            ("trino://user@host:8080/hive/default", SQLDialect.TRINO, "Trino"),
+            ("presto://user@host:8080/hive/default", SQLDialect.PRESTO, "Presto"),
+            ("athena://:@athena.us-east-1.amazonaws.com/default", SQLDialect.ATHENA, "Amazon Athena"),
             ("teradatasql://user:pass@host/db", SQLDialect.GENERIC, "Teradatasql SQL"),
             ("sap+hana://user:pass@host:30015/db", SQLDialect.GENERIC, "Sap SQL"),
         ]

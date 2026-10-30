@@ -229,4 +229,3 @@ class TestTeshQueryExtensions:
         assert "mssql" in cats["Relational Databases"]
         assert "sqlite" in cats["Relational Databases"]
         assert "cassandra" in cats["NoSQL & Specialized"]
-

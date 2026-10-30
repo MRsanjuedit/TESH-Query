@@ -259,4 +259,3 @@ if __name__ == "__main__":  # pragma: no cover
     print("Paths:", get_paths())
     print("Configured:", is_configured())
     print_config_debug()
-

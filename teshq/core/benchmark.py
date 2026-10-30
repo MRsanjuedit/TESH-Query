@@ -18,12 +18,14 @@ from teshq.core.engine import TeshEngine
 from teshq.core.query import execute_sql_query
 from teshq.utils.logging import logger
 
+
 @dataclass
 class BenchmarkItem:
     id: int
     question: str
     reference_sql: str
     order_matters: bool = False
+
 
 @dataclass
 class BenchmarkResult:
@@ -36,6 +38,7 @@ class BenchmarkResult:
     prompt_tokens: int
     completion_tokens: int
 
+
 def normalize_sql_string(sql: str) -> str:
     """Normalize SQL by lowercasing and collapsing whitespace to compare strings."""
     import re
@@ -46,9 +49,10 @@ def normalize_sql_string(sql: str) -> str:
         sql = sql[:-1].strip()
     return sql
 
+
 def compare_execution_results(
-    ref_rows: List[Dict[str, Any]], 
-    gen_rows: List[Dict[str, Any]], 
+    ref_rows: List[Dict[str, Any]],
+    gen_rows: List[Dict[str, Any]],
     order_matters: bool = False
 ) -> bool:
     """
@@ -147,10 +151,10 @@ class BenchmarkRunner:
         if not os.path.exists(self.questions_path):
             # Create default benchmark file if missing
             self._create_default_questions()
-            
+
         with open(self.questions_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or []
-            
+
         for i, doc in enumerate(data):
             self.items.append(BenchmarkItem(
                 id=doc.get("id", i + 1),
@@ -213,15 +217,15 @@ class BenchmarkRunner:
     def run(self) -> List[BenchmarkResult]:
         """Run all loaded benchmark items against the target engine."""
         results: List[BenchmarkResult] = []
-        
+
         # Initialize engine
         engine = TeshEngine(db_url=self.db_url, provider=self.provider)
-        
+
         logger.info(f"Starting benchmark run with {len(self.items)} items against provider: {engine._provider}")
-        
+
         for item in self.items:
             logger.info(f"Running Item {item.id}/{len(self.items)}: '{item.question}'")
-            
+
             generated_sql = ""
             exact_match = False
             execution_match = False
@@ -229,21 +233,21 @@ class BenchmarkRunner:
             latency = 0.0
             p_tokens = 0
             c_tokens = 0
-            
+
             try:
                 # 1. Generate SQL
                 t0 = time.time()
                 query_res = engine.query(item.question, dry_run=True)
                 latency = (time.time() - t0) * 1000
-                
+
                 generated_sql = query_res.sql
                 # QueryResult only exposes total_tokens; split is unavailable
                 p_tokens = query_res.total_tokens
                 c_tokens = 0
-                
+
                 # 2. Check exact string match
                 exact_match = (normalize_sql_string(generated_sql) == normalize_sql_string(item.reference_sql))
-                
+
                 # 3. Check execution match
                 ref_rows = execute_sql_query(db_url=self.db_url, query=item.reference_sql)
                 try:
@@ -252,11 +256,11 @@ class BenchmarkRunner:
                 except Exception as db_err:
                     execution_error = str(db_err)
                     logger.warning(f"Database error executing generated SQL: {db_err}")
-                    
+
             except Exception as e:
                 execution_error = f"Inference / compiler error: {e}"
                 logger.error(f"Failed to run benchmark item {item.id}: {e}")
-                
+
             results.append(BenchmarkResult(
                 item=item,
                 generated_sql=generated_sql,
@@ -267,7 +271,7 @@ class BenchmarkRunner:
                 prompt_tokens=p_tokens,
                 completion_tokens=c_tokens
             ))
-            
+
         return results
 
     @staticmethod
@@ -277,14 +281,14 @@ class BenchmarkRunner:
         exact_matches = sum(1 for r in results if r.exact_match)
         exec_matches = sum(1 for r in results if r.execution_match)
         errors = sum(1 for r in results if r.execution_error is not None)
-        
+
         avg_latency = sum(r.latency_ms for r in results) / total if total else 0
         total_prompt_tokens = sum(r.prompt_tokens for r in results)
         total_comp_tokens = sum(r.completion_tokens for r in results)
-        
+
         def pct(x):
             return (x / total * 100) if total else 0.0
-        
+
         lines = [
             "# TESH-Query Benchmark Report",
             "",
@@ -305,11 +309,11 @@ class BenchmarkRunner:
             "| ID | Question | Exact Match | Exec Match | Latency (ms) | Notes |",
             "| :--- | :--- | :---: | :---: | :---: | :--- |"
         ]
-        
+
         for r in results:
             exact_str = "✅" if r.exact_match else "❌"
             exec_str = "✅" if r.execution_match else "❌"
-            
+
             note = ""
             if r.execution_error:
                 note = f"Error: {r.execution_error[:60]}"
@@ -317,7 +321,7 @@ class BenchmarkRunner:
                     note += "..."
             elif not r.exact_match and r.execution_match:
                 note = "Equivalent SQL structure"
-                
+
             lines.append(f"| {r.item.id} | {r.item.question} | {exact_str} | {exec_str} | {r.latency_ms:.1f} | {note} |")
 
         # Add SQL comparison section for failed items
@@ -340,5 +344,5 @@ class BenchmarkRunner:
                 if r.execution_error:
                     lines.append(f"**Error:** `{r.execution_error}`")
                 lines.append("")
-            
+
         return "\n".join(lines)

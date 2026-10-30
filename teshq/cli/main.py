@@ -17,13 +17,13 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-from typing import Optional
+from typing import Optional  # noqa: E402
 
-import typer
-from sqlalchemy.exc import SQLAlchemyError
+import typer  # noqa: E402
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
 
-from teshq.cli import analytics, config, db, query, local, bench, model, chat
-from teshq.utils.logging import configure_global_logger
+from teshq.cli import analytics, config, db, query, local, bench, model, chat  # noqa: E402
+from teshq.utils.logging import configure_global_logger  # noqa: E402
 
 try:
     from teshq.cli import health
@@ -49,8 +49,9 @@ try:
 except ImportError:
     _TELEMETRY_CMD_AVAILABLE = False
 
-from teshq.cli.ui import handle_error
-from teshq.cli.ui import info as ui_info
+from teshq.cli.ui import handle_error  # noqa: E402
+from teshq.cli.ui import info as ui_info  # noqa: E402
+from teshq.cli.db import introspect as introspect_cmd  # noqa: E402
 
 app = typer.Typer(
     name="teshq",
@@ -168,7 +169,6 @@ if _TELEMETRY_CMD_AVAILABLE:
     app.add_typer(telemetry_cmd.app, name="telemetry", help="Manage anonymous usage telemetry.")
 
 # Register top-level aliases
-from teshq.cli.db import introspect as introspect_cmd
 app.command(name="introspect", help="Perform database schema introspection (alias for `db introspect`)")(introspect_cmd)
 
 

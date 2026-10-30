@@ -42,13 +42,13 @@ class SQLQuery(BaseModel):
         current = []
         in_single_quote = False
         in_double_quote = False
-        
+
         for char in self.query:
             if char == "'" and not in_double_quote:
                 in_single_quote = not in_single_quote
             elif char == '"' and not in_single_quote:
                 in_double_quote = not in_double_quote
-                
+
             if char == ';' and not in_single_quote and not in_double_quote:
                 stmt_str = "".join(current).strip()
                 if stmt_str:
@@ -56,12 +56,12 @@ class SQLQuery(BaseModel):
                 current = []
             else:
                 current.append(char)
-                
+
         # Catch the last statement if it doesn't end with a semicolon
         last_stmt = "".join(current).strip()
         if last_stmt:
             statements.append(last_stmt)
-            
+
         return len(statements) == 1 and statements[0].upper().startswith("SELECT")
 
 

@@ -38,9 +38,10 @@ REGISTRY = {
     }
 }
 
+
 class ModelManager:
     """Manages local GGUF files in ~/.teshq/models/"""
-    
+
     def __init__(self, models_dir: Path = MODELS_DIR):
         self.models_dir = Path(models_dir)
         self.models_dir.mkdir(parents=True, exist_ok=True)
@@ -50,12 +51,12 @@ class ModelManager:
         installed = []
         if not self.models_dir.exists():
             return installed
-            
+
         for file in os.listdir(self.models_dir):
             if file.endswith(".gguf"):
                 path = self.models_dir / file
                 size_gb = path.stat().st_size / (1024 ** 3)
-                
+
                 # Check if it matches a registry model
                 registry_name = "custom"
                 desc = "User-supplied custom GGUF model"
@@ -64,7 +65,7 @@ class ModelManager:
                         registry_name = name
                         desc = info["description"]
                         break
-                        
+
                 installed.append({
                     "name": registry_name,
                     "filename": file,
@@ -80,14 +81,14 @@ class ModelManager:
         Returns (is_compatible, warning_message).
         """
         hw = detect_hardware()
-        
+
         if model_name not in REGISTRY:
             # For custom models, make a general guess based on file size if known
             return True, ""
-            
+
         model_info = REGISTRY[model_name]
         req_ram = model_info["required_ram_gb"]
-        
+
         if hw.ram_total_gb < req_ram:
             msg = (
                 f"⚠️ WARNING: This model ('{model_name}') requires at least {req_ram}GB of system RAM.\n"
@@ -96,10 +97,10 @@ class ModelManager:
                 f"TESHQ is not liable for system crashes or data loss resulting from resource exhaustion."
             )
             return False, msg
-            
+
         return True, ""
 
-    def download_model(self, name_or_repo: str, filename: Optional[str] = None, progress_callback = None) -> str:
+    def download_model(self, name_or_repo: str, filename: Optional[str] = None, progress_callback=None) -> str:
         """
         Download a GGUF model from Hugging Face.
         Returns the absolute local path to the downloaded model.
@@ -118,7 +119,7 @@ class ModelManager:
 
         if "/" in file or "\\" in file or os.path.isabs(file):
             raise ValueError(f"Invalid filename: {file}")
-            
+
         dest_path = (self.models_dir / file).resolve()
         if dest_path.parent != self.models_dir.resolve():
             raise ValueError(f"Invalid model destination: {dest_path}")
@@ -126,7 +127,7 @@ class ModelManager:
         url = f"https://huggingface.co/{repo}/resolve/main/{file}"
 
         logger.info(f"Downloading from {url} to {dest_path}...")
-        
+
         try:
             response = requests.get(url, stream=True)
             if response.status_code != 200:
@@ -134,10 +135,10 @@ class ModelManager:
                     f"Failed to fetch model from HF. HTTP Status: {response.status_code}. "
                     "Verify the repository and filename are correct."
                 )
-                
+
             total_size = int(response.headers.get('content-length', 0))
             block_size = 1024 * 1024  # 1MB
-            
+
             downloaded = 0
             with open(dest_path, "wb") as f:
                 for data in response.iter_content(block_size):
@@ -149,14 +150,14 @@ class ModelManager:
             if dest_path.exists():
                 dest_path.unlink()
             raise RuntimeError(f"Network error while downloading model: {e}") from e
-                    
+
         return str(dest_path)
 
     def delete_model(self, filename: str) -> bool:
         """Delete a local GGUF model file."""
         if "/" in filename or "\\" in filename or os.path.isabs(filename):
             raise ValueError(f"Invalid filename: {filename}")
-            
+
         target_path = (self.models_dir / filename).resolve()
         if target_path.parent != self.models_dir.resolve():
             raise ValueError(f"Invalid model destination: {target_path}")

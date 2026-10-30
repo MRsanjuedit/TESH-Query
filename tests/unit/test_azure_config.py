@@ -9,6 +9,7 @@ import pytest
 
 from teshq.config.settings import Settings
 
+
 @pytest.fixture(autouse=True)
 def clear_env_vars(monkeypatch):
     """Clear all configuration env vars so tests run in a clean vacuum.
@@ -19,12 +20,12 @@ def clear_env_vars(monkeypatch):
         "AZURE_OPENAI_DEPLOYMENT"
     ]:
         monkeypatch.setenv(key, "")
-    
+
     monkeypatch.delenv("AZURE_OPENAI_API_VERSION", raising=False)
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.delenv("TESHQ_NO_TELEMETRY", raising=False)
-    
+
     # Prevent loading from actual ~/.teshq/.env on dev machine
     monkeypatch.setitem(Settings.model_config, "env_file", None)
 
@@ -103,7 +104,6 @@ class TestGetLlmConfig:
 
         import teshq.config.settings as settings_module
         settings_module._settings_cache = None  # force reload
-
 
         from teshq.config.loader import get_llm_config
         cfg = get_llm_config()

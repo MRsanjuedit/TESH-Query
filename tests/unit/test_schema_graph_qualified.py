@@ -11,7 +11,6 @@ Verifies that SchemaGraph correctly handles:
 from teshq.core.schema_graph import SchemaGraph
 
 
-
 def _make_schema_info(tables: dict, explicit_rels=None, dialect="SQLite"):
     """Helper to build a schema_info dict like introspect_db() returns."""
     si = {"tables": {}, "relationships": {"explicit": explicit_rels or [], "implicit": []}, "dialect": dialect}

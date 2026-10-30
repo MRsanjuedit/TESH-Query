@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from teshq.api import TeshQuery
 
 
-
 FOLLOW_UP_TRIGGERS = (
     "and",
     "or",

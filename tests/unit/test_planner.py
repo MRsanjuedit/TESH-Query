@@ -13,7 +13,6 @@ from teshq.core.planner import QueryPlanner
 from teshq.core.schema_graph import JoinEdge, SchemaGraph
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

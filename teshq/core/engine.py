@@ -180,6 +180,11 @@ class TeshEngine:
         # Clean up local runtime on exit
         atexit.register(self._cleanup_local_runtime)
 
+    @property
+    def db_url(self) -> Optional[str]:
+        """Return the active database connection URL."""
+        return self._db_url
+
     def _cleanup_local_runtime(self) -> None:
         """Unload local runtime on process shutdown."""
         if self._local_runtime:

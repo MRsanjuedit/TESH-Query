@@ -34,7 +34,11 @@ class SQLDialect(str, Enum):
     BIGQUERY = "BigQuery"
     SNOWFLAKE = "Snowflake"
     DATABRICKS = "Databricks SQL"
+    DELTALAKE = "Delta Lake"
     REDSHIFT = "Amazon Redshift"
+    TRINO = "Trino"
+    PRESTO = "Presto"
+    ATHENA = "Amazon Athena"
     # ── Tier 2: Local & Real-time OLAP ────────────────────────────────────
     DUCKDB = "DuckDB"
     CLICKHOUSE = "ClickHouse"
@@ -59,8 +63,16 @@ _URL_PREFIX_MAP = (
     ("bigquery", SQLDialect.BIGQUERY),
     ("snowflake", SQLDialect.SNOWFLAKE),
     ("databricks", SQLDialect.DATABRICKS),
+    ("delta", SQLDialect.DELTALAKE),        # delta:// or deltalake://
+    ("deltalake", SQLDialect.DELTALAKE),
+    ("lakehouse", SQLDialect.DELTALAKE),
+    ("trino", SQLDialect.TRINO),
+    ("presto", SQLDialect.PRESTO),
+    ("awsathena", SQLDialect.ATHENA),
+    ("athena", SQLDialect.ATHENA),
     ("redshift", SQLDialect.REDSHIFT),      # redshift+psycopg2://
     # ── Local & Real-time OLAP ────────────────────────────────────────────
+    ("parquet", SQLDialect.DUCKDB),
     ("duckdb", SQLDialect.DUCKDB),
     ("clickhouse", SQLDialect.CLICKHOUSE),
     # ── Operational RDBMS ─────────────────────────────────────────────────
@@ -125,6 +137,16 @@ def detect_dialect(db_url: Optional[str] = None) -> SQLDialect:
             return SQLDialect.REDSHIFT
         elif backend == "databricks":
             return SQLDialect.DATABRICKS
+        elif backend in ("trino",):
+            return SQLDialect.TRINO
+        elif backend in ("presto",):
+            return SQLDialect.PRESTO
+        elif backend in ("delta", "deltalake", "lakehouse"):
+            return SQLDialect.DELTALAKE
+        elif backend in ("awsathena", "athena"):
+            return SQLDialect.ATHENA
+        elif backend == "parquet":
+            return SQLDialect.DUCKDB
     except Exception:
         pass
 
@@ -227,6 +249,59 @@ def get_dialect_rules(dialect: SQLDialect) -> str:
             "- String concat: CONCAT(col1, col2) or col1 || col2.\n"
             "- Null replacement: COALESCE(x, y) or NVL(x, y).\n"
             "- Use Delta Lake table references: catalog.schema.table.\n"
+        ),
+        SQLDialect.DELTALAKE: (
+            "\nDelta Lake-specific rules (MUST follow):\n"
+            "- Use standard ANSI SQL syntax compatible with Delta Lake engines (Databricks / DuckDB).\n"
+            "- When referencing Delta tables, use clean table identifiers or catalog.schema.table.\n"
+            "- Use LIMIT N for row limiting.\n"
+            "- Date difference: DATEDIFF(end_date, start_date) returns number of days.\n"
+            "- Date arithmetic: DATE_ADD(date, n), DATE_SUB(date, n).\n"
+            "- Date truncation: DATE_TRUNC('month', date_col).\n"
+            "- Current date/time: CURRENT_DATE(), CURRENT_TIMESTAMP().\n"
+            "- String concat: CONCAT(col1, col2) or col1 || col2.\n"
+            "- Struct / nested column access: use dot notation e.g. address.city or user_info.email.\n"
+            "- Array filtering: EXPLODE(array_col) or list_contains(array_col, val).\n"
+            "- Time travel (when requested): table_name VERSION AS OF n or TIMESTAMP AS OF 'timestamp'.\n"
+            "- Null replacement: COALESCE(x, y) or IFNULL(x, y).\n"
+        ),
+        SQLDialect.TRINO: (
+            "\nTrino-specific rules (MUST follow):\n"
+            "- Use double quotes for identifiers if needed, never backticks.\n"
+            "- Use catalog.schema.table naming convention when querying across catalogs.\n"
+            "- Use LIMIT N for row limiting.\n"
+            "- Date difference: date_diff('day', start_date, end_date).\n"
+            "- Date arithmetic: date_add('day', n, date) or date + INTERVAL '7' DAY.\n"
+            "- Date truncation: date_trunc('month', date_col).\n"
+            "- Current date/time: CURRENT_DATE, CURRENT_TIMESTAMP.\n"
+            "- String concat: col1 || col2 or concat(col1, col2).\n"
+            "- Lambda expressions: transform(array_col, x -> x * 2), filter(array_col, x -> x > 0).\n"
+            "- JSON extraction: json_extract_scalar(json_col, '$.key').\n"
+            "- Null replacement: COALESCE(x, y).\n"
+        ),
+        SQLDialect.PRESTO: (
+            "\nPresto-specific rules (MUST follow):\n"
+            "- Use double quotes for identifiers, never backticks.\n"
+            "- Use catalog.schema.table naming convention.\n"
+            "- Use LIMIT N for row limiting.\n"
+            "- Date difference: date_diff('day', start_date, end_date).\n"
+            "- Date arithmetic: date_add('day', n, date) or date + INTERVAL '7' DAY.\n"
+            "- Date truncation: date_trunc('month', date_col).\n"
+            "- Current date/time: CURRENT_DATE, CURRENT_TIMESTAMP.\n"
+            "- String concat: col1 || col2.\n"
+            "- Null replacement: COALESCE(x, y).\n"
+        ),
+        SQLDialect.ATHENA: (
+            "\nAmazon Athena-specific rules (MUST follow):\n"
+            "- Compatible with Presto/Trino SQL syntax.\n"
+            "- Use double quotes for identifiers or backticks for special characters.\n"
+            "- Use LIMIT N for row limiting.\n"
+            "- Always filter on partition keys (e.g. year, month, date) to optimize cost and performance.\n"
+            "- Date difference: date_diff('day', start_date, end_date).\n"
+            "- Current date/time: CURRENT_DATE, CURRENT_TIMESTAMP.\n"
+            "- String concat: col1 || col2.\n"
+            "- Array unnesting: CROSS JOIN UNNEST(array_col) AS t(element).\n"
+            "- Null replacement: COALESCE(x, y).\n"
         ),
         SQLDialect.REDSHIFT: (
             "\nAmazon Redshift-specific rules (MUST follow):\n"
@@ -374,6 +449,37 @@ def get_dialect_hints(dialect: SQLDialect) -> str:
             "- Parts: YEAR(d), MONTH(d), DAY(d)\n"
             "- Current: CURRENT_DATE(), CURRENT_TIMESTAMP()\n"
             "- Concat: CONCAT(a, b) or a || b\n"
+            "- Row limit: LIMIT N\n"
+        ),
+        SQLDialect.DELTALAKE: (
+            "Delta Lake function reference:\n"
+            "- Date diff: DATEDIFF(end, start)\n"
+            "- Date add: DATE_ADD(d, n) / DATE_SUB(d, n)\n"
+            "- Date trunc: DATE_TRUNC('month', d)\n"
+            "- Current: CURRENT_DATE(), CURRENT_TIMESTAMP()\n"
+            "- Concat: CONCAT(a, b) or a || b\n"
+            "- Struct access: col.nested_field\n"
+            "- Row limit: LIMIT N\n"
+        ),
+        SQLDialect.TRINO: (
+            "Trino function reference:\n"
+            "- Date diff: date_diff('day', start, end)\n"
+            "- Date add: date_add('day', n, d)\n"
+            "- Current: CURRENT_DATE, CURRENT_TIMESTAMP\n"
+            "- Concat: a || b or concat(a, b)\n"
+            "- Row limit: LIMIT N\n"
+        ),
+        SQLDialect.PRESTO: (
+            "Presto function reference:\n"
+            "- Date diff: date_diff('day', start, end)\n"
+            "- Current: CURRENT_DATE, CURRENT_TIMESTAMP\n"
+            "- Concat: a || b\n"
+            "- Row limit: LIMIT N\n"
+        ),
+        SQLDialect.ATHENA: (
+            "Athena function reference:\n"
+            "- Date diff: date_diff('day', start, end)\n"
+            "- Current: CURRENT_DATE, CURRENT_TIMESTAMP\n"
             "- Row limit: LIMIT N\n"
         ),
         SQLDialect.REDSHIFT: (

@@ -18,7 +18,6 @@ from enum import Enum
 from pathlib import Path
 
 
-
 class SubscriptionState(str, Enum):
     NEVER_SHOWN = "NEVER_SHOWN"
     DECLINED = "DECLINED"

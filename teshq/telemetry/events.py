@@ -228,4 +228,3 @@ def get_query_metrics() -> list:
     except OSError:
         pass
     return events
-

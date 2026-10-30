@@ -39,8 +39,8 @@ def mask_database_url(url_or_text: str) -> str:
         pass
     # Fallback regex masking for passwords in URI format user:password@host
     res = re.sub(r":([^:@/ \t\n\r]+)@([a-zA-Z0-9_.-]+)", r":***@\2", url_or_text)
-    # Regex masking for key-value connection strings like password=...
-    res = re.sub(r"(?i)(password|pwd|secret)\s*=\s*['\"]?[^'\";\s]+['\"]?", r"\1=***", res)
+    # Regex masking for key-value connection strings like password=..., token=...
+    res = re.sub(r"(?i)(password|pwd|secret|token|api[_-]?key)\s*=\s*['\"]?[^'\";\s]+['\"]?", r"\1=***", res)
     return res
 
 
@@ -321,12 +321,16 @@ class ConnectionManager:
                         dbapi_conn.timeout = timeout_seconds
                 except Exception:
                     logger.debug("Query timeout configuration not supported on this MSSQL connection")
-            elif db_type not in ("sqlite", "cassandra", "duckdb"):
+            elif db_type not in ("sqlite", "cassandra", "duckdb", "delta", "lakehouse"):
                 # Best-effort for unknown databases (Snowflake, CockroachDB, etc.)
                 # Many PostgreSQL-compatible DBs support statement_timeout
                 try:
                     connection.execute(text(f"SET statement_timeout = {timeout_ms}"))
                 except Exception:
+                    try:
+                        connection.rollback()
+                    except Exception:
+                        pass
                     logger.debug(f"Query timeout not available for '{db_type}'")
         except SQLAlchemyError:
             try:
@@ -352,7 +356,7 @@ class ConnectionManager:
         try:
             with log_operation("get_database_connection", engine_name=target_engine_name):
                 connection = engine.connect()
-                if not target_url.startswith("sqlite"):
+                if not target_url.startswith(("sqlite", "duckdb", "delta", "deltalake", "lakehouse", "parquet")):
                     self._set_query_timeout(connection, target_url, self.config.query_timeout)
                 yield connection
         except Exception as e:

@@ -22,6 +22,7 @@ from teshq.utils.save import (
 #  generate_query_slug
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestGenerateQuerySlug:
     """Test slug generation from natural language queries."""
 
